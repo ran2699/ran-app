@@ -7,8 +7,10 @@
         <item name="postSplashScreenTheme">@style/Theme.Ran.Main</item>
     </style>
     <style name="Theme.Ran.Main" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="android:statusBarColor">#FFFFFF</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>

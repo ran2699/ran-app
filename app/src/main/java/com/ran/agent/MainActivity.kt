@@ -1,8 +1,15 @@
 package com.ran.agent
 
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -11,14 +18,24 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var web: WebView
+    private lateinit var root: FrameLayout
+    private lateinit var splashView: View
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private var pageReady = false
+    private var startAt = 0L
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         fileCallback?.onReceiveValue(if (uri != null) arrayOf(uri) else null)
@@ -42,14 +59,57 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 </div></body></html>
 """.trimIndent()
 
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
     private fun showError() {
         web.loadDataWithBaseURL("https://ran.ran-ai.pro/", errorHtml, "text/html", "utf-8", null)
     }
 
+    private fun dismissSplash() {
+        if (splashView.parent == null) return
+        splashView.animate().alpha(0f).setDuration(250).withEndAction {
+            root.removeView(splashView)
+        }.start()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        startAt = System.currentTimeMillis()
+        // 系统闪屏只挡 300ms 防白闪，随后交给我们的品牌启动页
+        installSplashScreen().setKeepOnScreenCondition {
+            System.currentTimeMillis() - startAt < 300
+        }
+
+        root = FrameLayout(this)
         web = WebView(this)
-        setContentView(web)
+        root.addView(web)
+        setContentView(web.parent as View? ?: web)
+
+        // 品牌启动页：大 logo + 产品名 + 转圈
+        splashView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(0xFFFFFFFF.toInt())
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_launcher)
+            }, LinearLayout.LayoutParams(dp(96), dp(96)))
+            addView(TextView(context).apply {
+                text = "RAN Agent"
+                textSize = 22f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFF1A1A1C.toInt())
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(16)
+            })
+            addView(ProgressBar(context).apply {
+                indeterminateTintList = ColorStateList.valueOf(0xFF1A1A1C.toInt())
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(28)
+            }))
+        }
+        root.addView(splashView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        setContentView(root)
+
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -65,6 +125,13 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
                 ) return false
                 startActivity(Intent(Intent.ACTION_VIEW, request.url))
                 return true
+            }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                if (!pageReady) {
+                    pageReady = true
+                    dismissSplash()
+                }
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -94,6 +161,11 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
                 if (web.canGoBack()) web.goBack() else finish()
             }
         })
+
+        // 8 秒兜底：服务器若假死（TCP 通但不响应），超时也放行，避免永远转圈
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!pageReady) dismissSplash()
+        }, 8000)
 
         web.loadUrl("https://ran.ran-ai.pro")
     }

@@ -61,6 +61,10 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
+    private fun showError() {
+        web.loadDataWithBaseURL("https://ran.ran-ai.pro/", errorHtml, "text/html", "utf-8", null)
+    }
+
     private fun dismissSplash() {
         if (splashView.parent == null) return
         splashView.animate().alpha(0f).setDuration(250).withEndAction {

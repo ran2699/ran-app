@@ -61,10 +61,6 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-    private fun showError() {
-        web.loadDataWithBaseURL("https://ran.ran-ai.pro/", errorHtml, "text/html", "utf-8", null)
-    }
-
     private fun dismissSplash() {
         if (splashView.parent == null) return
         splashView.animate().alpha(0f).setDuration(250).withEndAction {
@@ -75,17 +71,14 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         startAt = System.currentTimeMillis()
-        // 系统闪屏只挡 300ms 防白闪，随后交给我们的品牌启动页
         installSplashScreen().setKeepOnScreenCondition {
             System.currentTimeMillis() - startAt < 300
         }
-
         root = FrameLayout(this)
         web = WebView(this)
         root.addView(web)
-        setContentView(web.parent as View? ?: web)
+        setContentView(root)
 
-        // 品牌启动页：大 logo + 产品名 + 转圈
         splashView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -105,10 +98,9 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
                 indeterminateTintList = ColorStateList.valueOf(0xFF1A1A1C.toInt())
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(28)
-            }))
+            })
         }
         root.addView(splashView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        setContentView(root)
 
         web.settings.apply {
             javaScriptEnabled = true
@@ -162,7 +154,6 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             }
         })
 
-        // 8 秒兜底：服务器若假死（TCP 通但不响应），超时也放行，避免永远转圈
         Handler(Looper.getMainLooper()).postDelayed({
             if (!pageReady) dismissSplash()
         }, 8000)

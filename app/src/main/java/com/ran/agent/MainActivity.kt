@@ -196,13 +196,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         }
         root.addView(web)
         setContentView(root)
-        dbg = TextView(this).apply {
-            textSize = 11f
-            setTextColor(0xFF00FF00.toInt())
-            setBackgroundColor(0x88000000.toInt())
-            setPadding(dp(8), dp(90), dp(8), dp(8))
-        }
-        root.addView(dbg, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        /* 正式版：调试绿字层默认不创建（mark 因 dbg 未初始化自动静默） */
         mark("1 进程启动")
         mark("4 WebView 创建成功")
 

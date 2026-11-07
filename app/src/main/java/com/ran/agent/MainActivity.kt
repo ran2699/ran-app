@@ -17,6 +17,7 @@ import android.graphics.BitmapFactory
 import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory
 import android.view.animation.DecelerateInterpolator
 import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -45,6 +46,8 @@ class MainActivity : AppCompatActivity() {
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pageReady = false
     private var startAt = 0L
+    private var renderCrashCount = 0
+    private var softwareLayer = false
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         fileCallback?.onReceiveValue(if (uri != null) arrayOf(uri) else null)
@@ -137,6 +140,32 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         setContentView(sv)
     }
 
+    // 给容器环境的友好错误页：不甩堆栈，给一个能看懂的原因 + 重试按钮
+    private fun showFatal(title: String, desc: String, t: Throwable? = null) {
+        val tv = TextView(this).apply {
+            textSize = 14f
+            setTextColor(0xFF1A1A1C.toInt())
+            text = title + "\n\n" + desc + (t?.let { "\n\n" + it.toString() } ?: "")
+            setPadding(dp(24), dp(24), dp(24), dp(24))
+        }
+        val retry = android.widget.Button(this).apply {
+            text = "重试"
+            setOnClickListener { recreate() }
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(20), dp(120), dp(20), dp(20))
+            addView(tv)
+            addView(retry, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(20)
+            })
+        }
+        val sv = android.widget.ScrollView(this)
+        sv.addView(box)
+        setContentView(sv)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         try { super.onCreate(savedInstanceState) } catch (t: Throwable) { showCrash(t); return }
         try { buildUi() } catch (t: Throwable) { showCrash(t); return }
@@ -149,15 +178,20 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
         mark("3 边到边声明")
         startAt = System.currentTimeMillis()
-        installSplashScreen().setKeepOnScreenCondition {
-            System.currentTimeMillis() - startAt < 300
+        try {
+            installSplashScreen().setKeepOnScreenCondition {
+                System.currentTimeMillis() - startAt < 300
+            }
+            mark("2 闪屏安装")
+        } catch (t: Throwable) {
+            // 卓易通等容器对 splashscreen 支持不全：装不上就跳过，不当崩溃处理
+            mark("2 闪屏安装失败(跳过): " + t.javaClass.simpleName)
         }
-        mark("2 闪屏安装")
         root = FrameLayout(this)
         try {
             web = WebView(this)
         } catch (t: Throwable) {
-            showCrash(RuntimeException("WebView 创建失败（容器缺 WebView?）", t))
+            showFatal("WebView 创建失败", "当前环境缺少可用的 WebView 组件（卓易通等容器常见问题）。请为容器安装/更新 Android System WebView 后重试。", t)
             return
         }
         root.addView(web)
@@ -235,8 +269,20 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
         web.webViewClient = object : WebViewClient() {
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                mark("10 渲染进程崩溃 reason=" + detail.reason + " 自动重载")
-                view.reload()
+                renderCrashCount++
+                mark("10 渲染进程崩溃 reason=" + detail.reason + " 第" + renderCrashCount + "次")
+                if (renderCrashCount >= 2 && !softwareLayer) {
+                    // 卓易通容器 GPU 合成常出问题：第二次崩溃后降为软件渲染再试
+                    softwareLayer = true
+                    view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                    mark("10 降级软件渲染")
+                }
+                if (renderCrashCount > 3) {
+                    // 不再死循环重载，给用户可重试的错误页
+                    view.post { showFatal("页面渲染反复崩溃", "当前容器的 WebView 渲染进程不稳定。可点击重试重新载入；若反复出现，请更新容器内的 WebView 组件。") }
+                    return true
+                }
+                view.post { view.reload() }
                 return true
             }
 
@@ -249,12 +295,25 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
                 if (url.startsWith("https://ran.ran-ai.pro") ||
                     url.startsWith("http://100.103.73.74:8000")
                 ) return false
-                startActivity(Intent(Intent.ACTION_VIEW, request.url))
-                return true
+                // 卓易通等容器常没有浏览器：startActivity 必须防御，否则一点外链就闪退
+                return try {
+                    val intent = Intent(Intent.ACTION_VIEW, request.url)
+                    if (intent.resolveActivity(packageManager) != null) {
+                        startActivity(intent)
+                        true
+                    } else {
+                        android.widget.Toast.makeText(this@MainActivity, "当前环境没有可打开外部链接的浏览器", android.widget.Toast.LENGTH_LONG).show()
+                        true
+                    }
+                } catch (t: Throwable) {
+                    android.widget.Toast.makeText(this@MainActivity, "当前环境无法打开外部链接", android.widget.Toast.LENGTH_LONG).show()
+                    true
+                }
             }
 
             override fun onPageFinished(view: WebView, url: String) {
                 mark("8 页面加载完成")
+                renderCrashCount = 0
                 if (!pageReady) {
                     pageReady = true
                     dismissSplash()

@@ -1,7 +1,10 @@
 package com.ran.agent
 
+import android.content.Context
 import android.content.Intent
-import android.content.res.ColorStateList
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
@@ -10,6 +13,8 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
+import android.view.animation.DecelerateInterpolator
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -21,7 +26,6 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,8 +34,11 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 
 class MainActivity : AppCompatActivity() {
 
+    // 品牌组垂直锚点：屏幕高度的比例（网页空状态 logo 的视觉中心约在中点偏上）
+    private val ANCHOR = 0.45
     private lateinit var web: WebView
     private lateinit var root: FrameLayout
+    private lateinit var splashBg: View
     private lateinit var splashView: View
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pageReady = false
@@ -67,9 +74,47 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
     private fun dismissSplash() {
         if (splashView.parent == null) return
-        splashView.animate().alpha(0f).setDuration(250).withEndAction {
-            root.removeView(splashView)
-        }.start()
+        val anim = splashView.animate().alpha(0f).setDuration(250)
+        if (splashBg.parent != null) anim.withEndAction { root.removeView(splashBg) }
+        anim.start()
+        splashBg.animate().alpha(0f).setDuration(250).start()
+    }
+
+    private inner class SpinView(context: Context) : View(context) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF1A1A1C.toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = 4f * resources.displayMetrics.density
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val rect = RectF()
+        private var rot = 0f
+        private val loop = object : Runnable {
+            override fun run() {
+                rot = (rot + 6f) % 360f
+                invalidate()
+                postDelayed(this, 16)
+            }
+        }
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            post(loop)
+        }
+        override fun onDetachedFromWindow() {
+            removeCallbacks(loop)
+            super.onDetachedFromWindow()
+        }
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val cx = width / 2f
+            val cy = height / 2f
+            val r = minOf(width, height) / 2f - paint.strokeWidth
+            rect.set(cx - r, cy - r, cx + r, cy + r)
+            canvas.save()
+            canvas.rotate(rot, cx, cy)
+            canvas.drawArc(rect, 0f, 270f, false, paint)
+            canvas.restore()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -83,28 +128,52 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         root.addView(web)
         setContentView(root)
 
+        // 白底层：占满全屏，与系统闪屏的白底连续
+        splashBg = View(this).apply { setBackgroundColor(0xFFFFFFFF.toInt()) }
+        root.addView(splashBg, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        // 品牌内容组：与网页空状态同位置（锚点 ANCHOR）同构成（logo/产品名/提示/转圈）
         splashView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(0xFFFFFFFF.toInt())
+            gravity = Gravity.CENTER_HORIZONTAL
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.ic_launcher)
+                clipToOutline = true
+                outlineProvider = ViewOutlineProvider { view, outline ->
+                    val r = view.resources.displayMetrics.density * 22
+                    outline.setRoundRect(0, 0, view.width, view.height, r)
+                }
             }, LinearLayout.LayoutParams(dp(96), dp(96)))
             addView(TextView(context).apply {
                 text = "RAN Agent"
-                textSize = 22f
+                textSize = 21f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(0xFF1A1A1C.toInt())
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(16)
+                topMargin = dp(14)
             })
-            addView(ProgressBar(context).apply {
-                indeterminateTintList = ColorStateList.valueOf(0xFF1A1A1C.toInt())
+            addView(TextView(context).apply {
+                text = "\u8f7d\u5165\u6570\u636e\u4e2d\u2026"
+                textSize = 13f
+                setTextColor(0xFF8F8F95.toInt())
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(28)
+                topMargin = dp(8)
+            })
+            addView(SpinView(context), LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                topMargin = dp(24)
             })
         }
-        root.addView(splashView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // 组高约 220dp：锚点 45% 处放置组的中心
+        val groupTop = (resources.displayMetrics.heightPixels * ANCHOR).toInt() - dp(110)
+        root.addView(splashView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            topMargin = groupTop
+        })
+
+        splashView.alpha = 0f
+        splashView.translationY = dp(14).toFloat()
+        splashView.animate().alpha(1f).translationY(0f).setDuration(380)
+            .setInterpolator(DecelerateInterpolator()).start()
 
         web.settings.apply {
             javaScriptEnabled = true

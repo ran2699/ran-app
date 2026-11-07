@@ -270,7 +270,8 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         web.webViewClient = object : WebViewClient() {
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 renderCrashCount++
-                mark("10 渲染进程崩溃 reason=" + detail.reason + " 第" + renderCrashCount + "次")
+                val why = if (detail.didCrash()) "渲染进程崩溃" else "渲染进程被系统回收"
+                mark("10 " + why + " 第" + renderCrashCount + "次")
                 if (renderCrashCount >= 2 && !softwareLayer) {
                     // 卓易通容器 GPU 合成常出问题：第二次崩溃后降为软件渲染再试
                     softwareLayer = true

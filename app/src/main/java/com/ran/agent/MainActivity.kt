@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
 
     // 品牌组垂直锚点：屏幕高度的比例（网页空状态 logo 的视觉中心约在中点偏上）
     private val ANCHOR = 0.45
+    private lateinit var dbg: TextView
     private lateinit var web: WebView
     private lateinit var root: FrameLayout
     private lateinit var splashBg: View
@@ -68,6 +69,10 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 """.trimIndent()
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun mark(s: String) {
+        if (::dbg.isInitialized) runOnUiThread { dbg.text = dbg.text.toString() + "\n" + s }
+    }
 
     private fun showError() {
         web.loadDataWithBaseURL("https://ran.ran-ai.pro/", errorHtml, "text/html", "utf-8", null)
@@ -142,14 +147,30 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        mark("3 边到边声明")
         startAt = System.currentTimeMillis()
         installSplashScreen().setKeepOnScreenCondition {
             System.currentTimeMillis() - startAt < 300
         }
+        mark("2 闪屏安装")
         root = FrameLayout(this)
-        web = WebView(this)
+        try {
+            web = WebView(this)
+        } catch (t: Throwable) {
+            showCrash(RuntimeException("WebView 创建失败（容器缺 WebView?）", t))
+            return
+        }
         root.addView(web)
         setContentView(root)
+        dbg = TextView(this).apply {
+            textSize = 11f
+            setTextColor(0xFF00FF00.toInt())
+            setBackgroundColor(0x88000000.toInt())
+            setPadding(dp(8), dp(90), dp(8), dp(8))
+        }
+        root.addView(dbg, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        mark("1 进程启动")
+        mark("4 WebView 创建成功")
 
         // 白底层：占满全屏，与系统闪屏的白底连续
         splashBg = View(this).apply { setBackgroundColor(0xFFFFFFFF.toInt()) }
@@ -210,8 +231,19 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             mediaPlaybackRequiresUserGesture = false
         }
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
+        mark("5 设置完成")
 
         web.webViewClient = object : WebViewClient() {
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                mark("10 渲染进程崩溃 reason=" + detail.reason + " 自动重载")
+                view.reload()
+                return true
+            }
+
+            override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+                mark("7 页面开始加载")
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url.toString()
                 if (url.startsWith("https://ran.ran-ai.pro") ||
@@ -222,6 +254,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             }
 
             override fun onPageFinished(view: WebView, url: String) {
+                mark("8 页面加载完成")
                 if (!pageReady) {
                     pageReady = true
                     dismissSplash()
@@ -229,6 +262,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                mark("9 网络错误 code=" + error.errorCode)
                 if (request.isForMainFrame) showError()
             }
 
@@ -260,6 +294,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             if (!pageReady) dismissSplash()
         }, 8000)
 
+        mark("6 loadUrl 已发")
         web.loadUrl("https://ran.ran-ai.pro")
     }
 }

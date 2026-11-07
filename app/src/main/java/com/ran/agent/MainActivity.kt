@@ -156,7 +156,11 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             addView(ImageView(context).apply {
-                val bmp = BitmapFactory.decodeResource(resources, R.drawable.ic_launcher)
+                val tv = android.util.TypedValue()
+                resources.getValue(R.drawable.ic_launcher, tv, true)
+                val ins = resources.openRawResource(R.drawable.ic_launcher, tv)
+                val bmp = BitmapFactory.decodeStream(ins)
+                ins.close()
                 if (bmp != null) {
                     val dr = RoundedBitmapDrawableFactory.create(resources, bmp)
                     dr.cornerRadius = 22f * resources.displayMetrics.density

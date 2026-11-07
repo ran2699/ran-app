@@ -74,6 +74,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
     }
 
     private fun dismissSplash() {
+        if (!::splashView.isInitialized) return
         if (splashView.parent == null) return
         val anim = splashView.animate().alpha(0f).setDuration(250)
         if (splashBg.parent != null) anim.withEndAction { root.removeView(splashBg) }
@@ -118,8 +119,25 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         }
     }
 
+    private fun showCrash(t: Throwable) {
+        val tv = TextView(this).apply {
+            textSize = 12f
+            setTextIsSelectable(true)
+            text = "\u542f\u52a8\u5d29\u6e83\uff1a\n\n" + t.toString() + "\n\n" +
+                    (t.stackTraceToString()?.take(1200) ?: "")
+            setPadding(dp(20), dp(60), dp(20), dp(20))
+        }
+        val sv = android.widget.ScrollView(this)
+        sv.addView(tv)
+        setContentView(sv)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+        try { super.onCreate(savedInstanceState) } catch (t: Throwable) { showCrash(t); return }
+        try { buildUi() } catch (t: Throwable) { showCrash(t); return }
+    }
+
+    private fun buildUi() {
         startAt = System.currentTimeMillis()
         installSplashScreen().setKeepOnScreenCondition {
             System.currentTimeMillis() - startAt < 300
@@ -139,9 +157,13 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             gravity = Gravity.CENTER_HORIZONTAL
             addView(ImageView(context).apply {
                 val bmp = BitmapFactory.decodeResource(resources, R.drawable.ic_launcher)
-                val dr = RoundedBitmapDrawableFactory.create(resources, bmp)
-                dr.cornerRadius = 22f * resources.displayMetrics.density
-                setImageDrawable(dr)
+                if (bmp != null) {
+                    val dr = RoundedBitmapDrawableFactory.create(resources, bmp)
+                    dr.cornerRadius = 22f * resources.displayMetrics.density
+                    setImageDrawable(dr)
+                } else {
+                    setImageResource(R.drawable.ic_launcher)
+                }
             }, LinearLayout.LayoutParams(dp(96), dp(96)))
             addView(TextView(context).apply {
                 text = "RAN Agent"

@@ -138,6 +138,10 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
     }
 
     private fun buildUi() {
+        // 关键：声明内容画到系统栏下方（缺这行，部分 ROM 透明色不生效）
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
         startAt = System.currentTimeMillis()
         installSplashScreen().setKeepOnScreenCondition {
             System.currentTimeMillis() - startAt < 300
@@ -256,6 +260,6 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             if (!pageReady) dismissSplash()
         }, 8000)
 
-        web.loadUrl("https://ran.ran-ai.pro/?probe=1")
+        web.loadUrl("https://ran.ran-ai.pro")
     }
 }

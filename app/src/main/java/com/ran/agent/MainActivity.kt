@@ -13,7 +13,8 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewOutlineProvider
+import android.graphics.BitmapFactory
+import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory
 import android.view.animation.DecelerateInterpolator
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
@@ -137,12 +138,10 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             addView(ImageView(context).apply {
-                setImageResource(R.drawable.ic_launcher)
-                clipToOutline = true
-                outlineProvider = ViewOutlineProvider { view, outline ->
-                    val r = view.resources.displayMetrics.density * 22
-                    outline.setRoundRect(0, 0, view.width, view.height, r)
-                }
+                val bmp = BitmapFactory.decodeResource(resources, R.drawable.ic_launcher)
+                val dr = RoundedBitmapDrawableFactory.create(resources, bmp)
+                dr.cornerRadius = 22f * resources.displayMetrics.density
+                setImageDrawable(dr)
             }, LinearLayout.LayoutParams(dp(96), dp(96)))
             addView(TextView(context).apply {
                 text = "RAN Agent"

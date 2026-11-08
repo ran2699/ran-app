@@ -49,7 +49,6 @@ class MainActivity : AppCompatActivity() {
 
     // 品牌组垂直锚点：屏幕高度的比例（网页空状态 logo 的视觉中心约在中点偏上）
     private val ANCHOR = 0.45
-    private lateinit var dbg: TextView
     private lateinit var web: WebView
     private lateinit var root: FrameLayout
     private lateinit var splashBg: View
@@ -131,9 +130,8 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         toast("保存失败")
     }
 
-    private fun mark(s: String) {
-        if (::dbg.isInitialized) runOnUiThread { dbg.text = dbg.text.toString() + "\n" + s }
-    }
+    /* v1.2 调试浮层已移除：mark 保留为空实现，调用点不动 */
+    private fun mark(s: String) { }
 
     private fun showError() {
         web.loadDataWithBaseURL("https://ran.ran-ai.pro/", errorHtml, "text/html", "utf-8", null)
@@ -223,13 +221,6 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         }
         root.addView(web)
         setContentView(root)
-        dbg = TextView(this).apply {
-            textSize = 11f
-            setTextColor(0xFF00FF00.toInt())
-            setBackgroundColor(0x88000000.toInt())
-            setPadding(dp(8), dp(90), dp(8), dp(8))
-        }
-        root.addView(dbg, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         mark("1 进程启动")
         mark("4 WebView 创建成功")
 

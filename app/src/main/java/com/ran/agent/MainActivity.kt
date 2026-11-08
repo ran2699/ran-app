@@ -28,7 +28,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.webkit.WebViewClient.RenderProcessGoneDetail
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -314,12 +313,6 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         mark("5 设置完成")
 
         web.webViewClient = object : WebViewClient() {
-            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                mark("10 渲染进程崩溃 reason=" + detail.reason + " 自动重载")
-                view.reload()
-                return true
-            }
-
             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                 mark("7 页面开始加载")
             }

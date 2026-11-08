@@ -303,6 +303,33 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         })
         mark("5 设置完成")
 
+        // v1.3 键盘探测：卓易通/鸿蒙容器窗口不随键盘缩放，网页 visualViewport 收不到变化，
+        // 输入框顶不上去。原生量出键盘上方的可视高度（dp）推给网页 window.__ranKb，网页据此整体上移。
+        try {
+            val decor = window.decorView.rootView
+            var lastKb = -1
+            decor.viewTreeObserver.addOnGlobalLayoutListener {
+                try {
+                    val r = android.graphics.Rect()
+                    decor.getWindowVisibleDisplayFrame(r)
+                    val dm = resources.displayMetrics
+                    val kbPx = decor.bottom - r.bottom
+                    val open = kbPx > dm.density * 120   // 120dp 以下视为导航栏抖动等非键盘变化
+                    val state = if (open) 1 else 0
+                    if (state != lastKb) {
+                        lastKb = state
+                        val vis = if (open) r.height() / dm.density else 0f
+                        web.post {
+                            web.evaluateJavascript(
+                                "window.__ranKb&&window.__ranKb(" +
+                                    (if (open) "%.1f".format(vis) else "0") + ")", null
+                            )
+                        }
+                    }
+                } catch (t: Throwable) { }
+            }
+        } catch (t: Throwable) { }
+
         web.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                 mark("7 页面开始加载")

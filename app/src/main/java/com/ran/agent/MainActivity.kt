@@ -17,17 +17,29 @@ import android.graphics.BitmapFactory
 import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory
 import android.view.animation.DecelerateInterpolator
 import android.webkit.CookieManager
+import android.webkit.DownloadListener
+import android.webkit.JavascriptInterface
+import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
+import android.app.DownloadManager
+import android.content.ContentValues
+import android.content.pm.ActivityInfo
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.util.Base64
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -69,6 +81,55 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 """.trimIndent()
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun toast(s: String) {
+        runOnUiThread { Toast.makeText(this, s, Toast.LENGTH_SHORT).show() }
+    }
+
+    /* v1.1 JS 桥：网页端检测 window.RANAndroid 后可直接调原生能力 */
+    private inner class JsBridge {
+        @JavascriptInterface
+        fun downloadBase64(name: String, mime: String, b64: String) {
+            try {
+                val data = Base64.decode(b64, Base64.DEFAULT)
+                saveToDownloads(if (name.isBlank()) "download" else name,
+                                if (mime.isBlank()) "application/octet-stream" else mime, data)
+            } catch (t: Throwable) { toast("保存失败") }
+        }
+        @JavascriptInterface
+        fun setLandscape(on: Boolean) {
+            runOnUiThread {
+                requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                       else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+    }
+
+    private fun saveToDownloads(name: String, mime: String, data: ByteArray) {
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, name)
+                    put(MediaStore.Downloads.MIME_TYPE, mime)
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    contentResolver.openOutputStream(uri)?.use { it.write(data) }
+                    toast("已保存到下载目录：" + name)
+                    return
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                dir.mkdirs()
+                java.io.File(dir, name).writeBytes(data)
+                toast("已保存到下载目录：" + name)
+                return
+            }
+        } catch (t: Throwable) { }
+        toast("保存失败")
+    }
 
     private fun mark(s: String) {
         if (::dbg.isInitialized) runOnUiThread { dbg.text = dbg.text.toString() + "\n" + s }
@@ -229,8 +290,26 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             javaScriptEnabled = true
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false
+            // v1.1：禁用页面缓存，平台更新后冷启动必拿新版（治"旧页面花屏/旧功能"）
+            cacheMode = WebSettings.LOAD_NO_CACHE
         }
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
+        // v1.1 JS 桥：下载（base64 落盘）+ 横屏锁定
+        web.addJavascriptInterface(JsBridge(), "RANAndroid")
+        // v1.1 兜底下载：attachment 类导航（非 blob）交给系统下载器，带上登录 cookie
+        web.setDownloadListener(DownloadListener { url, _, contentDisposition, mimetype, _ ->
+            try {
+                val name = URLUtil.guessFileName(url, contentDisposition, mimetype)
+                val req = DownloadManager.Request(Uri.parse(url)).apply {
+                    val cookie = CookieManager.getInstance().getCookie(url)
+                    if (!cookie.isNullOrEmpty()) addRequestHeader("Cookie", cookie)
+                    setTitle(name)
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+                }
+                (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
+            } catch (t: Throwable) { toast("下载失败") }
+        })
         mark("5 设置完成")
 
         web.webViewClient = object : WebViewClient() {

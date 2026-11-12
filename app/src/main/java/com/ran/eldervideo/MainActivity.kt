@@ -159,9 +159,10 @@ class MainActivity : Activity() {
         }
         root.addView(
             backBtn,
-            FrameLayout.LayoutParams(dp(176), dp(176), Gravity.BOTTOM or Gravity.END).apply {
-                rightMargin = dp(20)
-                bottomMargin = dp(20)
+            FrameLayout.LayoutParams(dp(190), dp(190), Gravity.BOTTOM or Gravity.END).apply {
+                rightMargin = dp(22)
+                // 抬到系统导航栏之上，别被那三个白点压住
+                bottomMargin = dp(58)
             }
         )
 

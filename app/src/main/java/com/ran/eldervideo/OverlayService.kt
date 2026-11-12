@@ -70,6 +70,8 @@ class OverlayService : Service() {
             }
         }
 
+        fun alive(): Boolean = inst != null
+
         fun setVisible(v: Boolean) {
             inst?.applyVisibility(v)
         }
@@ -129,20 +131,67 @@ class OverlayService : Service() {
         buildBottomBar()
     }
 
+    private var shownState: Boolean? = null
+
+    private val pendingShow = Runnable { applyVisibilityNow(true) }
+
+    /**
+     * 抖音一进来会连发好几个窗口状态事件，原来是每来一个就 GONE/VISIBLE 折腾一遍，
+     * 屏幕上就是"闪几下"。现在：要显示就等 420 毫秒稳定后再挂，且状态没变不再重设；
+     * 要隐藏（回桌面）立刻执行，一帧都不拖。
+     */
     private fun applyVisibility(v: Boolean) {
         handler.post {
-            if (v && returningHome) {
-                Log.i(TAG, "visibility -> true 被忽略（正在回桌面）")
-                return@post
+            handler.removeCallbacks(pendingShow)
+            if (v) {
+                if (returningHome) {
+                    Log.i(TAG, "visibility -> true 被忽略（正在回桌面）")
+                    return@post
+                }
+                if (shownState == true) return@post
+                handler.postDelayed(pendingShow, 420L)
+            } else {
+                applyVisibilityNow(false)
             }
-            val vis = if (v) View.VISIBLE else View.GONE
-            try {
-                maskView?.visibility = vis
-                topView?.visibility = vis
-                bottomView?.visibility = vis
-            } catch (e: Throwable) {
+        }
+    }
+
+    private fun applyVisibilityNow(v: Boolean) {
+        if (v && returningHome) return
+        if (v == shownState) return
+        // 被系统摘掉的浮层要先补回来，否则会出现"明明在抖音里却没有遮罩"
+        if (v && (maskView?.parent == null || topView?.parent == null || bottomView?.parent == null)) {
+            rebuildOverlay()
+        }
+        shownState = v
+        val vis = if (v) View.VISIBLE else View.GONE
+        try {
+            maskView?.visibility = vis
+            topView?.visibility = vis
+            bottomView?.visibility = vis
+        } catch (e: Throwable) {
+        }
+        Log.i(TAG, "visibility -> $v")
+    }
+
+    private fun rebuildOverlay() {
+        try {
+            listOf(maskView, topView, bottomView).forEach { v ->
+                v?.let { runCatching { wm.removeView(it) } }
             }
-            Log.i(TAG, "visibility -> $v")
+        } catch (e: Throwable) {
+        }
+        maskView = null
+        topView = null
+        bottomView = null
+        timeText = null
+        dateText = null
+        shownState = null
+        try {
+            buildAll()
+            Log.i(TAG, "overlay rebuilt")
+        } catch (e: Throwable) {
+            Log.e(TAG, "overlay rebuild failed", e)
         }
     }
 

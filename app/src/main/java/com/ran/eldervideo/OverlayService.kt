@@ -36,8 +36,8 @@ class OverlayService : Service() {
 
     companion object {
         private const val TAG = "ElderOverlay"
-        private const val TOP_H_DP = 74
-        private const val BOTTOM_H_DP = 190
+        private const val TOP_H_DP = 66
+        private const val BOTTOM_H_DP = 200
 
         /** 回桌面期间强制不显示浮层；由 MainActivity.onResume 解除 */
         @Volatile
@@ -146,6 +146,31 @@ class OverlayService : Service() {
         }
     }
 
+    /**
+     * 临时放开触摸墙。
+     * 注入的滑动手势和真人手指走的是同一套事件分发，会先命中我们这层最上面的浮层。
+     * 所以每次发滑动前把触摸墙设成"不接收触摸"，抖音才能收到这一下；完成后再收回来。
+     */
+    private fun setMaskTouchable(touchable: Boolean) {
+        handler.post {
+            val v = maskView ?: return@post
+            try {
+                val lp = v.layoutParams as WindowManager.LayoutParams
+                lp.flags = if (touchable) baseFlags()
+                else baseFlags() or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                wm.updateViewLayout(v, lp)
+                Log.i(TAG, "mask touchable=$touchable")
+            } catch (e: Throwable) {
+                Log.e(TAG, "mask touchable failed", e)
+            }
+        }
+    }
+
+    /** 兜底：万一回调没回来，1.2 秒后一定把触摸墙收回来 */
+    private fun restoreMaskSoon() {
+        handler.postDelayed({ setMaskTouchable(true) }, 1200L)
+    }
+
     override fun onDestroy() {
         running = false
         inst = null
@@ -246,7 +271,7 @@ class OverlayService : Service() {
             labelText = "上一个"
             faceColor = Color.parseColor("#1B5FD9")
             faceColorDark = Color.parseColor("#0A2E63")
-            labelSizeSp = 26f
+            labelSizeSp = 30f
             depthDp = 20f
             setOnPressListener { trigger(false) }
         }
@@ -254,7 +279,7 @@ class OverlayService : Service() {
             labelText = "下一个"
             faceColor = Color.parseColor("#1B5FD9")
             faceColorDark = Color.parseColor("#0A2E63")
-            labelSizeSp = 26f
+            labelSizeSp = 30f
             depthDp = 20f
             setOnPressListener { trigger(true) }
         }
@@ -266,10 +291,10 @@ class OverlayService : Service() {
             setOnPressListener { goHome() }
         }
 
-        val btnH = dp(158)
+        val btnH = dp(176)
         row.addView(prev, LinearLayout.LayoutParams(0, btnH, 1f).apply { rightMargin = dp(12) })
         row.addView(next, LinearLayout.LayoutParams(0, btnH, 1f).apply { rightMargin = dp(12) })
-        row.addView(home, LinearLayout.LayoutParams(dp(156), btnH))
+        row.addView(home, LinearLayout.LayoutParams(dp(176), btnH))
 
         addView(
             row,
@@ -310,7 +335,17 @@ class OverlayService : Service() {
             return
         }
         Log.i(TAG, "trigger next=$next")
-        if (!svc.swipe(next)) toast("滑动没发出去")
+        // 注入的手势和真人手指走同一套分发，会先落到最上面这层触摸墙上。
+        // 先让墙"不接收触摸"，等窗口属性生效再注入手势，完事立刻收回。
+        setMaskTouchable(false)
+        handler.postDelayed({
+            val ok = svc.swipe(next) { handler.post { setMaskTouchable(true) } }
+            if (!ok) {
+                handler.post { setMaskTouchable(true) }
+                toast("滑动没发出去")
+            }
+            restoreMaskSoon()
+        }, 130L)
     }
 
     /**
@@ -351,6 +386,10 @@ class OverlayService : Service() {
                     Log.e(TAG, "goHome HOME failed", e)
                 }
             }
+            // 第一只手：无障碍 global action 发 HOME，最可靠
+            handler.post(Runnable {
+                try { SwipeService.instance?.goHomeNow() } catch (e: Throwable) {}
+            })
             handler.post(launch)
             handler.postDelayed(homeKey, 240L)
             handler.postDelayed(launch, 620L)

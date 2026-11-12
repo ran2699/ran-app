@@ -32,25 +32,36 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
     private val rowToday: TextView
     private val rowTomorrow: TextView
     private val rowAfter: TextView
+    private lateinit var content: LinearLayout
     private val verdict: TextView
     private val status: TextView
 
     init {
         orientation = VERTICAL
         setBackgroundColor(Color.parseColor("#0B0B0B"))
-        setPadding(dp(24), dp(46), dp(24), dp(205))
+        // 整页可滚：内容比屏幕高时不再把最下面那句话裁掉
+        val scroll = android.widget.ScrollView(context).apply {
+            isFillViewport = true
+            setBackgroundColor(Color.parseColor("#0B0B0B"))
+        }
+        content = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(24), dp(46), dp(24), dp(190))
+        }
+        scroll.addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
-        addView(tv(CITY, 40f, Color.WHITE, Typeface.BOLD), lp())
+        content.addView(tv(CITY, 40f, Color.WHITE, Typeface.BOLD), lp())
 
         todayText = tv("—", 130f, Color.WHITE, Typeface.BOLD)
-        addView(todayText, lp(top = 10))
+        content.addView(todayText, lp(top = 10))
         descText = tv("正在看天气…", 34f, Color.parseColor("#CFD8DC"), Typeface.NORMAL)
-        addView(descText, lp(top = 2))
+        content.addView(descText, lp(top = 2))
 
         val divider = LinearLayout(context).apply {
             setBackgroundColor(Color.parseColor("#2A2F36"))
         }
-        addView(divider, LinearLayout.LayoutParams(-1, dp(2)).apply {
+        content.addView(divider, LinearLayout.LayoutParams(-1, dp(2)).apply {
             topMargin = dp(20)
             bottomMargin = dp(18)
         })
@@ -58,9 +69,9 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
         rowToday = tv("今天", 30f, Color.WHITE, Typeface.BOLD)
         rowTomorrow = tv("明天", 30f, Color.WHITE, Typeface.BOLD)
         rowAfter = tv("后天", 30f, Color.WHITE, Typeface.BOLD)
-        addView(rowToday, lp(top = 6))
-        addView(rowTomorrow, lp(top = 14))
-        addView(rowAfter, lp(top = 14))
+        content.addView(rowToday, lp(top = 6))
+        content.addView(rowTomorrow, lp(top = 14))
+        content.addView(rowAfter, lp(top = 14))
 
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
@@ -71,15 +82,18 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
             }
             setPadding(dp(18), dp(18), dp(18), dp(18))
         }
-        verdict = tv("…", 30f, Color.parseColor("#FFD54F"), Typeface.BOLD)
+        verdict = tv("…", 28f, Color.parseColor("#FFD54F"), Typeface.BOLD).apply {
+            isSingleLine = false
+            maxLines = 6
+        }
         box.addView(verdict, LinearLayout.LayoutParams(-1, -2))
-        addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+        content.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
 
         status = tv("", 20f, Color.parseColor("#8D9AA5"), Typeface.NORMAL)
-        addView(status, lp(top = 14))
+        content.addView(status, lp(top = 14))
 
         // 底部给右下角返回键留位置
-        addView(LinearLayout(context), LinearLayout.LayoutParams(-1, dp(140)))
+        content.addView(LinearLayout(context), LinearLayout.LayoutParams(-1, dp(20)))
 
         load()
     }
@@ -141,12 +155,12 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
             val tmax = daily.getJSONArray("temperature_2m_max")
             val tmin = daily.getJSONArray("temperature_2m_min")
 
-            todayText.text = if (curT.isNaN()) "—" else "${curT.toInt()}°"
+            todayText.text = if (curT.isNaN()) "—" else "现在 ${curT.toInt()}°"
 
             val hi0 = tmax.optDouble(0, Double.NaN)
             val lo0 = tmin.optDouble(0, Double.NaN)
             descText.text = "今天" + codeText(codes.optInt(0, curCode)) +
-                    "，最冷 " + plainInt(lo0) + " 度，最热 " + plainInt(hi0) + " 度。"
+                    "，最高 " + plainInt(hi0) + " 度，最低 " + plainInt(lo0) + " 度。"
 
             val sb = StringBuilder()
             for (i in 0 until 3) {
@@ -154,7 +168,7 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
                 val hi = tmax.optDouble(i, Double.NaN)
                 val lo = tmin.optDouble(i, Double.NaN)
                 val line = "${label(i)}　${codeText(codes.optInt(i, 0))}　" +
-                        "${plainInt(hi)}度 / ${plainInt(lo)}度"
+                        "最高 ${plainInt(hi)} 度，最低 ${plainInt(lo)} 度"
                 when (i) {
                     0 -> rowToday.text = line
                     1 -> rowTomorrow.text = line

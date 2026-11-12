@@ -37,7 +37,7 @@ class OverlayService : Service() {
     companion object {
         private const val TAG = "ElderOverlay"
         private const val TOP_H_DP = 86
-        private const val BOTTOM_H_DP = 236
+        private const val BOTTOM_H_DP = 320
 
         /** 回桌面期间强制不显示浮层；由 MainActivity.onResume 解除 */
         @Volatile
@@ -253,6 +253,11 @@ class OverlayService : Service() {
         return if (id > 0) resources.getDimensionPixelSize(id) else dp(32)
     }
 
+    private fun navigationBarHeight(): Int {
+        val id = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else dp(48)
+    }
+
     private fun overlayType(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -317,7 +322,7 @@ class OverlayService : Service() {
         addView(
             bar,
             WindowManager.LayoutParams.MATCH_PARENT,
-            sb + dp(TOP_H_DP),
+            WindowManager.LayoutParams.WRAP_CONTENT, // 顶栏高度跟着字走，系统放大字体也不会被裁
             Gravity.TOP or Gravity.START, 0, 0
         )
         topView = bar
@@ -326,52 +331,54 @@ class OverlayService : Service() {
 
     /** ③ 底部按键带 */
     private fun buildBottomBar() {
-        // 横向：左边一列上下两个整宽大键，右边一颗大圆球返回桌面。
-        // 三个键并排会把每个键挤到 90dp 宽，字只能缩成一条线——老人根本看不清。
+        // 左边一列两个整宽大键（上一个 / 下一个），右边一颗大圆球返回桌面。
+        // 三键并排会把每个键挤到 90dp 宽，字只能缩成一条线——老人根本看不清。
+        val navH = navigationBarHeight()
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Color.BLACK)
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setPadding(dp(18), dp(16), dp(18), dp(16) + navH)
         }
 
         val prev = MechanicalButton(this).apply {
             labelText = "上一个"
             faceColor = Color.parseColor("#1B5FD9")
             faceColorDark = Color.parseColor("#0A2E63")
-            labelSizeSp = 40f
-            depthDp = 20f
+            labelSizeSp = 46f
+            depthDp = 30f
             setOnPressListener { trigger(false) }
         }
         val next = MechanicalButton(this).apply {
             labelText = "下一个"
             faceColor = Color.parseColor("#1B5FD9")
             faceColorDark = Color.parseColor("#0A2E63")
-            labelSizeSp = 40f
-            depthDp = 20f
+            labelSizeSp = 46f
+            depthDp = 30f
             setOnPressListener { trigger(true) }
         }
         val home = MechanicalButton(this).apply {
             circular = true
             faceColor = Color.parseColor("#D3261B")
             faceColorDark = Color.parseColor("#6E0A05")
-            depthDp = 20f
+            depthDp = 34f
             setOnPressListener { goHome() }
         }
 
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        col.addView(prev, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply { bottomMargin = dp(12) })
+        col.addView(prev, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply { bottomMargin = dp(14) })
         col.addView(next, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
         row.addView(col, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
-        row.addView(home, LinearLayout.LayoutParams(dp(196), LinearLayout.LayoutParams.MATCH_PARENT).apply { leftMargin = dp(14) })
+        row.addView(home, LinearLayout.LayoutParams(dp(214), LinearLayout.LayoutParams.MATCH_PARENT).apply { leftMargin = dp(16) })
 
+        // 高度 = 内容高度 + 系统导航栏高度，三个键整体抬到导航栏之上
         addView(
             row,
             WindowManager.LayoutParams.MATCH_PARENT,
-            dp(BOTTOM_H_DP),
+            dp(BOTTOM_H_DP) + navH,
             Gravity.BOTTOM or Gravity.START, 0, 0
         )
         bottomView = row

@@ -3,24 +3,21 @@ package com.ran.eldervideo
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 
-/**
- * 无障碍服务：只做两件事
- * 1. 监听前台应用，判断是不是抖音 -> 通知遮罩层显示/隐藏
- * 2. 执行"上一个/下一个"的滑动手势
- */
 class SwipeService : AccessibilityService() {
 
     private var lastSwipeAt = 0L
+    private val handler = Handler(Looper.getMainLooper())
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        // 无障碍一开，把遮罩服务拉起来
         OverlayService.start(this)
     }
 
@@ -30,7 +27,10 @@ class SwipeService : AccessibilityService() {
         val pkg = ev.packageName?.toString() ?: return
         when {
             pkg in TIKTOK_PACKAGES -> OverlayService.showOverlay()
-            pkg != packageName -> OverlayService.hideOverlay()
+            // 自己的界面、系统音量条/通知栏，都不要收起遮罩
+            pkg == packageName -> Unit
+            pkg == "com.android.systemui" -> Unit
+            else -> OverlayService.hideOverlay()
         }
     }
 
@@ -42,22 +42,23 @@ class SwipeService : AccessibilityService() {
         super.onDestroy()
     }
 
-    /** 下一个：手指从下往上滑（抖音的"下一条"） */
-    fun next() = swipe(0.74f, 0.26f)
-
-    /** 上一个：手指从上往下滑 */
-    fun prev() = swipe(0.30f, 0.78f)
+    fun next() = swipe(0.72f, 0.30f)
+    fun prev() = swipe(0.30f, 0.72f)
 
     private fun swipe(fromYFrac: Float, toYFrac: Float, retried: Boolean = false) {
         val now = SystemClock.uptimeMillis()
-        if (!retried && now - lastSwipeAt < 500L) return
+        if (!retried && now - lastSwipeAt < 400L) return
         lastSwipeAt = now
+
+        // 关键：手势注入会落在遮罩层上，先让遮罩暂时不可触摸（触摸穿透到抖音）
+        OverlayService.setTouchable(false)
+        handler.postDelayed({ OverlayService.setTouchable(true) }, 350L)
 
         val dm = DisplayMetrics()
         @Suppress("DEPRECATION")
         (getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay.getRealMetrics(dm)
 
-        val x = dm.widthPixels * 0.5f
+        val x = dm.widthPixels * 0.45f
         val h = dm.heightPixels.toFloat()
 
         val path = Path().apply {
@@ -65,14 +66,15 @@ class SwipeService : AccessibilityService() {
             lineTo(x, h * toYFrac)
         }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0L, 200L))
+            .addStroke(GestureDescription.StrokeDescription(path, 0L, 180L))
             .build()
 
         dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {}
             override fun onCancelled(gestureDescription: GestureDescription?) {
-                // 视频还在加载时偶尔会取消，重试一次
-                if (!retried) swipe(fromYFrac, toYFrac, true)
+                if (!retried) {
+                    handler.postDelayed({ swipe(fromYFrac, toYFrac, true) }, 450L)
+                }
             }
         }, null)
     }
@@ -83,8 +85,8 @@ class SwipeService : AccessibilityService() {
 
     companion object {
         val TIKTOK_PACKAGES = setOf(
-            "com.ss.android.ugc.aweme",        // 抖音
-            "com.ss.android.ugc.aweme.lite"    // 抖音极速版
+            "com.ss.android.ugc.aweme",
+            "com.ss.android.ugc.aweme.lite"
         )
 
         @Volatile

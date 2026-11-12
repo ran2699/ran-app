@@ -79,6 +79,7 @@ class OverlayService : Service() {
             curParams = p
             wm.addView(v, p)
             visible = true
+            setStatusBarHidden(true)
             handler.removeCallbacks(ticker)
             handler.post(ticker)
         } catch (t: Throwable) {
@@ -94,6 +95,24 @@ class OverlayService : Service() {
         } catch (t: Throwable) {
         }
         visible = false
+        setStatusBarHidden(false)
+    }
+
+    /**
+     * 隐藏/恢复系统状态栏。
+     * 需要 WRITE_SECURE_SETTINGS，用 adb 授权一次即可：
+     *   adb shell pm grant com.ran.agent android.permission.WRITE_SECURE_SETTINGS
+     * 没授权会抛 SecurityException，这里吞掉，界面照常工作。
+     */
+    private fun setStatusBarHidden(hidden: Boolean) {
+        try {
+            Settings.Global.putString(
+                contentResolver,
+                "policy_control",
+                if (hidden) "immersive.status=*" else ""
+            )
+        } catch (t: Throwable) {
+        }
     }
 
     /** 手势注入期间临时让遮罩不接收触摸 */
@@ -317,7 +336,6 @@ class OverlayService : Service() {
         val m = c.get(Calendar.MONTH) + 1
         val d = c.get(Calendar.DAY_OF_MONTH)
         val bat = battery()
-        // 注意：竖线中文字符必须用 ${} 包住，否则 Kotlin 会把它当成标识符的一部分
         return "${m}月${d}日 ${week}\n电量 ${bat}%"
     }
 

@@ -57,6 +57,11 @@ class MechanicalButton @JvmOverloads constructor(
         invalidate()
     }
 
+    /** 改了 faceColor / depthDp 这类普通字段后叫一声，让键帽重画 */
+    fun refresh() {
+        invalidate()
+    }
+
     private fun shade(c: Int, f: Float): Int = Color.argb(
         Color.alpha(c),
         (Color.red(c) * f).toInt().coerceIn(0, 255),

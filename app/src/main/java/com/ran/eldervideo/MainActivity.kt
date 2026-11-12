@@ -62,6 +62,17 @@ class MainActivity : Activity() {
     private var pinTimer: Runnable? = null
     private var a11yTip: View? = null
 
+    /** 息屏页（AOD）相关 */
+    private var aodView: FrameLayout? = null
+    private var aodClock: TextView? = null
+    private var aodDate: TextView? = null
+    private val aodTicker = object : Runnable {
+        override fun run() {
+            paintAod()
+            handler.postDelayed(this, 10_000L)
+        }
+    }
+
     private val ticker = object : Runnable {
         override fun run() {
             refreshClock()

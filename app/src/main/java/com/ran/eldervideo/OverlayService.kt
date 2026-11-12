@@ -3,6 +3,9 @@ package com.ran.eldervideo
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.os.BatteryManager
@@ -18,19 +21,16 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.graphics.Color
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * 四个窗口，互不重叠，所以谁在上层都不影响观感：
- * 1. 触摸墙——全屏透明，吃掉所有触摸（视频不许滑、图标不许点）
- * 2. 顶端黑带——超大时间 / 日期 / 电量
- * 3. 右侧黑条——盖住点赞评论那一列，从顶带下沿到底栏上沿
- * 4. 底部黑带——三颗机械按键
- *
- * 回到我们自己的桌面时会整体隐藏（MainActivity.onResume 调 stop）。
+ * 三个窗口：
+ * 1. 触摸墙——全屏透明，吃掉所有触摸（视频不许滑、图标不许点），顺手把右侧点赞栏涂成实黑
+ * 2. 顶端黑带——从屏幕最上沿开始，盖住系统状态栏，放超大时间 / 日期 / 电量
+ * 3. 底部黑带——三颗机械按键
+ * 回到自己的桌面时整层隐藏。
  */
 class OverlayService : Service() {
 
@@ -66,7 +66,6 @@ class OverlayService : Service() {
             }
         }
 
-        /** 显示/隐藏整层（不销毁服务） */
         fun setVisible(v: Boolean) {
             inst?.applyVisibility(v)
         }
@@ -75,7 +74,6 @@ class OverlayService : Service() {
     private lateinit var wm: WindowManager
     private var maskView: View? = null
     private var topView: View? = null
-    private var rightView: View? = null
     private var bottomView: View? = null
     private var timeText: TextView? = null
     private var dateText: TextView? = null
@@ -120,7 +118,6 @@ class OverlayService : Service() {
     private fun buildAll() {
         buildMask()
         buildTopBar()
-        buildRightBar()
         buildBottomBar()
     }
 
@@ -130,7 +127,6 @@ class OverlayService : Service() {
             try {
                 maskView?.visibility = vis
                 topView?.visibility = vis
-                rightView?.visibility = vis
                 bottomView?.visibility = vis
             } catch (e: Throwable) {
             }
@@ -142,12 +138,11 @@ class OverlayService : Service() {
         running = false
         inst = null
         handler.removeCallbacksAndMessages(null)
-        listOf(maskView, topView, rightView, bottomView).forEach { v ->
+        listOf(maskView, topView, bottomView).forEach { v ->
             v?.let { runCatching { wm.removeView(it) } }
         }
         maskView = null
         topView = null
-        rightView = null
         bottomView = null
         super.onDestroy()
     }
@@ -178,13 +173,9 @@ class OverlayService : Service() {
         wm.addView(v, lp)
     }
 
-    // ---------------- ① 触摸墙 ----------------
+    // ---------------- ① 触摸墙（含右侧黑条） ----------------
     private fun buildMask() {
-        val wall = View(this).apply {
-            setBackgroundColor(Color.TRANSPARENT)
-            isClickable = true
-            setOnTouchListener { _, _ -> true }
-        }
+        val wall = TouchWallView(this, statusBarHeight() + dp(TOP_H_DP), dp(BOTTOM_H_DP), 0.70f)
         addView(
             wall,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -196,15 +187,16 @@ class OverlayService : Service() {
 
     // ---------------- ② 顶部黑带 ----------------
     private fun buildTopBar() {
+        val sb = statusBarHeight()
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(Color.BLACK)
-            setPadding(dp(20), 0, dp(20), 0)
+            setPadding(dp(20), sb, dp(20), 0)
         }
         val time = TextView(this).apply {
             setTextColor(Color.WHITE)
-            textSize = 46f
+            textSize = 48f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             includeFontPadding = false
         }
@@ -222,30 +214,14 @@ class OverlayService : Service() {
         addView(
             bar,
             WindowManager.LayoutParams.MATCH_PARENT,
-            dp(TOP_H_DP),
-            Gravity.TOP or Gravity.START, 0, statusBarHeight()
+            sb + dp(TOP_H_DP),
+            Gravity.TOP or Gravity.START, 0, 0
         )
         topView = bar
         refreshClock()
     }
 
-    // ---------------- ③ 右侧黑条 ----------------
-    private fun buildRightBar() {
-        val dm = resources.displayMetrics
-        val screenW = dm.widthPixels
-        val screenH = dm.heightPixels
-        val topY = statusBarHeight() + dp(TOP_H_DP)
-        val barH = screenH - topY - dp(BOTTOM_H_DP)
-        var barW = (screenW * 0.30f).toInt()
-        if (barH <= 0 || barW <= 0) return
-
-        val v = View(this).apply { setBackgroundColor(Color.BLACK) }
-        addView(v, barW, barH, Gravity.TOP or Gravity.START, screenW - barW, topY)
-        rightView = v
-        Log.i(TAG, "right bar $barW x $barH at y=$topY")
-    }
-
-    // ---------------- ④ 底部黑带 ----------------
+    // ---------------- ③ 底部黑带 ----------------
     private fun buildBottomBar() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -311,7 +287,6 @@ class OverlayService : Service() {
         -1
     }
 
-    // ---------------- 动作 ----------------
     private fun trigger(next: Boolean) {
         val now = System.currentTimeMillis()
         if (now - lastTap < 450L) return
@@ -345,4 +320,36 @@ class OverlayService : Service() {
         } catch (e: Throwable) {
         }
     }
+}
+
+/**
+ * 全屏触摸墙：onTouchEvent 一律返回 true，把落在中间视频区的滑动和点击全部吃掉。
+ * 同时把右侧点赞/评论/收藏那一列涂成实黑（顶带与底带之间那条）。
+ */
+class TouchWallView(
+    ctx: Context,
+    private val topPx: Int,
+    private val bottomPx: Int,
+    private val xRatio: Float
+) : View(ctx) {
+
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    init {
+        isClickable = true
+        isFocusable = false
+        setBackgroundColor(Color.TRANSPARENT)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val bottom = h - bottomPx
+        if (bottom <= topPx) return
+        paint.color = Color.BLACK
+        canvas.drawRect(w * xRatio, topPx.toFloat(), w, bottom, paint)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean = true
 }

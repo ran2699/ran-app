@@ -46,7 +46,7 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
         }
         content = LinearLayout(context).apply {
             orientation = VERTICAL
-            setPadding(dp(24), dp(46), dp(24), dp(240))
+            setPadding(dp(24), dp(46), dp(24), dp(192))
         }
         scroll.addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))

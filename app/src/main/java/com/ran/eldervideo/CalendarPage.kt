@@ -17,7 +17,7 @@ import java.util.Locale
 /**
  * 老月份牌样式的万年历页。
  * 纸色底 + 朱红字 + 宋体，顶部红色横条，中间超大红字日，下面星期、农历、干支生肖，
- * 方框里放几行"还有多少天"的实用信息。没有小字。
+ * 方框里放几行实在的数。返回键由主界面右下角那颗统一提供。
  */
 class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(ctx) {
 
@@ -34,7 +34,7 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
     init {
         orientation = VERTICAL
         setBackgroundColor(PAPER)
-        setPadding(dp(18), dp(26), dp(18), dp(20))
+        setPadding(dp(18), dp(26), dp(18), dp(150))
         build()
     }
 
@@ -110,7 +110,6 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
         // ⑤ 方框：几行实在的数
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
-            setBackgroundColor(BOX)
             background = GradientDrawable().apply {
                 setColor(BOX)
                 setStroke(dp(3), RED)
@@ -136,16 +135,5 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }
         )
         addView(box, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-
-        // ⑥ 返回
-        val back = MechanicalButton(context).apply {
-            labelText = "返回"
-            faceColor = RED
-            faceColorDark = DEEP_RED
-            labelSizeSp = 34f
-            depthDp = 12f
-            setOnPressListener { onBack() }
-        }
-        addView(back, LayoutParams(LayoutParams.MATCH_PARENT, dp(112)).apply { topMargin = dp(18) })
     }
 }

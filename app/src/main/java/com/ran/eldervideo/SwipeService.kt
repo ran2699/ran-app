@@ -35,10 +35,36 @@ class SwipeService : AccessibilityService() {
         @Volatile
         private var fgPkg: String = ""
 
+        /**
+         * 这些包名只是抖音启动时弹出来的系统层窗口（权限框、状态栏、系统壳），
+         * 拿它们当下面前台会把遮罩误判成"已经离开抖音"，于是遮罩闪一下就没了。
+         */
+        private val NOISE_PKGS = arrayOf(
+            "com.android.systemui",
+            "android",
+            "com.miui.securitycenter",
+            "com.miui.permission",
+            "com.google.android.permissioncontroller",
+            "com.android.permissioncontroller",
+            "com.miui.aod"
+        )
+
         fun foregroundPackage(): String = fgPkg
 
         fun isTiktokForeground(): Boolean =
             TIKTOK_PACKAGES.any { fgPkg.startsWith(it) }
+
+        /** 直接问无障碍服务：系统认为现在最上层的那个窗口属于谁 */
+        private fun realActivePackage(): String {
+            return try {
+                val inst = instance ?: return ""
+                val list = inst.windows ?: return ""
+                val w = list.firstOrNull { it.isActive } ?: list.firstOrNull()
+                w?.root?.packageName?.toString().orEmpty()
+            } catch (e: Throwable) {
+                ""
+            }
+        }
 
         /** 浮层只该在抖音出现，别的界面一律关掉（含老人桌面） */
         private fun syncOverlay() {
@@ -47,11 +73,18 @@ class SwipeService : AccessibilityService() {
                     OverlayService.setVisible(false)
                     return
                 }
-                val want = isTiktokForeground()
+                var want = isTiktokForeground()
+                val actual = realActivePackage()
+                if (!want && actual.isNotEmpty() && TIKTOK_PACKAGES.any { actual.startsWith(it) }) {
+                    // 事件里的包名被系统弹窗带偏了，以真实活动窗口为准
+                    want = true
+                    Log.i(TAG, "sync overlay 事件包名 $fgPkg 不算数，实际窗口 $actual 是抖音")
+                }
                 // 服务被系统回收过，实例没了就没人能开浮层——这里补一刀
                 if (want && !OverlayService.alive()) {
                     instance?.let { OverlayService.start(it) }
                 }
+                Log.i(TAG, "sync overlay fg=$fgPkg active=$actual want=$want")
                 OverlayService.setVisible(want)
             } catch (e: Throwable) {
                 Log.e(TAG, "sync overlay failed", e)
@@ -80,6 +113,11 @@ class SwipeService : AccessibilityService() {
                 }
                 Log.i(TAG, "capabilities ${current} -> ${field.getInt(info)}")
             }
+            // 要点到"当前真正在最上层的窗口"，才能识破抖音外面那层系统弹窗
+            serviceInfo?.let { info ->
+                info.flags = info.flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                setServiceInfo(info)
+            }
         } catch (e: Throwable) {
             Log.e(TAG, "set capabilities failed", e)
         }
@@ -102,9 +140,10 @@ class SwipeService : AccessibilityService() {
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val pkg = event.packageName?.toString().orEmpty()
             if (pkg.isNotEmpty()) {
-                fgPkg = pkg
-                // 浮层跟着抖音走：抖音在前台才出现，回到任何别的界面立刻收掉。
-                // 这样"回到老人桌面后屏蔽层还挡着按钮点不动"的问题不会再出现。
+                // 系统层弹窗（权限框、状态栏、系统壳）不代表真的离开了抖音，跳过不记
+                val noise = NOISE_PKGS.any { pkg == it || pkg.startsWith("$it.") }
+                if (!noise) fgPkg = pkg
+                // 浮层跟着抖音走：抖音在前台才出现，回到任何别的界面收掉。
                 syncOverlay()
             }
             if (TIKTOK_PACKAGES.any { pkg.contains(it) }) {

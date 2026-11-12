@@ -5,10 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.PixelFormat
-import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.BatteryManager
 import android.os.Build
@@ -18,6 +16,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
@@ -27,10 +26,10 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 三窗口浮层：
- * 1. 清洁遮罩——全屏、不接收触摸，只把抖音的图标栏/标语栏涂黑，手势照常穿透给抖音
- * 2. 顶部信息条——超大时间/日期/电量，不接收触摸
- * 3. 底部按键条——三颗机械按键，接收触摸
+ * 三个窗口：
+ * 1. 触摸墙——全屏、透明、吃掉所有触摸（视频不许滑、图标不许点），只把最右侧点赞栏涂成实黑
+ * 2. 顶部信息条——全实黑，超大时间 / 日期 / 电量，不接收触摸
+ * 3. 底部按键条——全实黑高条，三颗机械按键，接收触摸
  */
 class OverlayService : Service() {
 
@@ -106,7 +105,7 @@ class OverlayService : Service() {
     }
 
     private fun buildAll() {
-        // 顺序即层序：先加的在下。遮罩必须在按钮之下，否则会挡住按键。
+        // 顺序即层序：先加的在下
         buildMask()
         buildTopBar()
         buildBottomBar()
@@ -126,6 +125,11 @@ class OverlayService : Service() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
+    private fun statusBarHeight(): Int {
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else dp(32)
+    }
+
     private fun overlayType(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -133,11 +137,10 @@ class OverlayService : Service() {
             @Suppress("DEPRECATION")
             WindowManager.LayoutParams.TYPE_PHONE
 
-    // ---------------- 清洁遮罩 ----------------
+    // ---------------- 触摸墙 ----------------
     private fun buildMask() {
-        val mask = CleanMaskView(this)
+        val wall = TouchWallView(this)
         val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         val lp = WindowManager.LayoutParams(
@@ -151,9 +154,9 @@ class OverlayService : Service() {
             x = 0
             y = 0
         }
-        wm.addView(mask, lp)
-        maskView = mask
-        Log.i(TAG, "mask added")
+        wm.addView(wall, lp)
+        maskView = wall
+        Log.i(TAG, "touch wall added")
     }
 
     // ---------------- 顶部信息条 ----------------
@@ -161,19 +164,20 @@ class OverlayService : Service() {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#000000"))
-            setPadding(dp(24), dp(10), dp(24), dp(12))
+            setBackgroundColor(Color.BLACK)
+            setPadding(dp(20), dp(8), dp(20), dp(10))
+            minimumHeight = dp(120)
         }
 
         val time = TextView(this).apply {
             setTextColor(Color.WHITE)
-            textSize = 46f
+            textSize = 44f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             includeFontPadding = false
         }
         val info = TextView(this).apply {
-            setTextColor(Color.parseColor("#EDEDED"))
-            textSize = 20f
+            setTextColor(Color.parseColor("#F0F0F0"))
+            textSize = 19f
             gravity = Gravity.END
             includeFontPadding = false
         }
@@ -196,7 +200,7 @@ class OverlayService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = 0
-            y = dp(-3)
+            y = statusBarHeight()
         }
         wm.addView(bar, lp)
         topView = bar
@@ -230,43 +234,46 @@ class OverlayService : Service() {
     private fun buildBottomBar() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Color.parseColor("#000000"))
-            setPadding(dp(12), dp(14), dp(12), dp(26))
+            setBackgroundColor(Color.BLACK)
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(18), dp(10), dp(18), dp(10))
         }
 
         val prev = MechanicalButton(this).apply {
             labelText = "上一个"
             faceColor = Color.parseColor("#1B5FD9")
-            faceColorDark = Color.parseColor("#0E3A8C")
-            labelSizeSp = 34f
+            faceColorDark = Color.parseColor("#0A2E63")
+            labelSizeSp = 32f
+            depthDp = 16f
             setOnPressListener { trigger(false) }
         }
         val next = MechanicalButton(this).apply {
             labelText = "下一个"
             faceColor = Color.parseColor("#1B5FD9")
-            faceColorDark = Color.parseColor("#0E3A8C")
-            labelSizeSp = 34f
+            faceColorDark = Color.parseColor("#0A2E63")
+            labelSizeSp = 32f
+            depthDp = 16f
             setOnPressListener { trigger(true) }
         }
         val home = MechanicalButton(this).apply {
             circular = true
             faceColor = Color.parseColor("#D3261B")
-            faceColorDark = Color.parseColor("#8C1109")
+            faceColorDark = Color.parseColor("#6E0A05")
+            depthDp = 16f
             setOnPressListener { goHome() }
         }
 
-        val h = dp(128)
-        row.addView(prev, LinearLayout.LayoutParams(0, h, 1f).apply { rightMargin = dp(10) })
-        row.addView(next, LinearLayout.LayoutParams(0, h, 1f).apply { rightMargin = dp(10) })
-        row.addView(home, LinearLayout.LayoutParams(0, h, 1f))
+        val btnH = dp(150)
+        row.addView(prev, LinearLayout.LayoutParams(0, btnH, 1f).apply { rightMargin = dp(14) })
+        row.addView(next, LinearLayout.LayoutParams(0, btnH, 1f).apply { rightMargin = dp(14) })
+        row.addView(home, LinearLayout.LayoutParams(0, btnH, 1f))
 
         val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            dp(330),
             overlayType(),
             flags,
             PixelFormat.TRANSLUCENT
@@ -319,48 +326,28 @@ class OverlayService : Service() {
 }
 
 /**
- * 只做一件事：把画面上属于“抖音操作界面”的部分用黑色吃掉。
- * 自身 FLAG_NOT_TOUCHABLE，不接收任何触摸，老人的手指仍然落在视频上。
+ * 全屏触摸墙：自身可触摸，onTouchEvent 一律返回 true，把落在视频区的滑动和点击全部吃掉。
+ * 只画一条实黑，盖住右侧点赞/评论/收藏/转发那一列。
  */
-class CleanMaskView(ctx: Context) : View(ctx) {
+class TouchWallView(ctx: Context) : View(ctx) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    init {
+        isClickable = true
+        isFocusable = false
+    }
 
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
+        paint.color = Color.BLACK
+        // 右侧图标栏：整条涂黑
+        canvas.drawRect(w * 0.70f, 0f, w, h, paint)
+    }
 
-        val d = resources.displayMetrics.density
-        val black = Color.BLACK
-        val clear = Color.TRANSPARENT
-
-        // ① 顶部：抖音的 返回/推荐/关注/直播/团购/商城 一整条
-        val topH = 150f * d
-        paint.shader = LinearGradient(
-            0f, topH - 30f * d, 0f, topH,
-            intArrayOf(black, clear), floatArrayOf(0f, 1f), Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, 0f, w, topH, paint)
-
-        // ② 右侧：头像、关注、点赞、评论、收藏、转发
-        val rStart = w * 0.68f
-        val rEnd = w * 0.78f
-        paint.shader = LinearGradient(
-            rStart, 0f, rEnd, 0f,
-            intArrayOf(clear, black), floatArrayOf(0f, 1f), Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(rStart, topH, w, h, paint)
-
-        // ③ 底部：文案、话题、音乐条、广告条
-        val bSolid = h - 175f * d
-        val bFade = bSolid - 110f * d
-        paint.shader = LinearGradient(
-            0f, bFade, 0f, bSolid,
-            intArrayOf(clear, black), floatArrayOf(0f, 1f), Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, bFade, w, h, paint)
-
-        paint.shader = null
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        return true
     }
 }

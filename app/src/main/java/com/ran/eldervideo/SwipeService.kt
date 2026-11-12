@@ -43,6 +43,10 @@ class SwipeService : AccessibilityService() {
         /** 浮层只该在抖音出现，别的界面一律关掉（含老人桌面） */
         private fun syncOverlay() {
             try {
+                if (OverlayService.forceHidden) {
+                    OverlayService.setVisible(false)
+                    return
+                }
                 OverlayService.setVisible(isTiktokForeground())
             } catch (e: Throwable) {
                 Log.e(TAG, "sync overlay failed", e)
@@ -137,28 +141,32 @@ class SwipeService : AccessibilityService() {
 
         val x = screenW / 2f
         // 起止点放在画面中部，避开顶部信息条和底部按钮区
-        val startY = if (up) screenH * 0.70f else screenH * 0.34f
-        val endY = if (up) screenH * 0.30f else screenH * 0.74f
+        val startY = if (up) screenH * 0.80f else screenH * 0.26f
+        val endY = if (up) screenH * 0.20f else screenH * 0.86f
 
         val path = Path()
         path.moveTo(x, startY)
         path.lineTo(x, endY)
 
-        val stroke = GestureDescription.StrokeDescription(path, 0L, 240L)
+        val stroke = GestureDescription.StrokeDescription(path, 0L, 300L)
         val gesture = GestureDescription.Builder()
             .addStroke(stroke)
             .build()
 
         return try {
-            dispatchGesture(gesture, object : GestureResultCallback() {
+            val ok = dispatchGesture(gesture, object : GestureResultCallback() {
                 override fun onCompleted(g: GestureDescription?) {
+                    Log.i(TAG, "gesture completed up=$up")
                     onDone?.invoke()
                 }
 
                 override fun onCancelled(g: GestureDescription?) {
+                    Log.w(TAG, "gesture cancelled up=$up")
                     onDone?.invoke()
                 }
             }, handler)
+            Log.i(TAG, "dispatchGesture=$ok up=$up y=$startY->$endY screen=$screenW x $screenH")
+            ok
         } catch (e: Throwable) {
             Log.e(TAG, "dispatchGesture exception", e)
             onDone?.invoke()

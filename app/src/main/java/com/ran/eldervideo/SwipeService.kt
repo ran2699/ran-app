@@ -103,6 +103,24 @@ class SwipeService : AccessibilityService() {
     private var screenW = 0
     private var screenH = 0
 
+    /**
+     * 定时核对前台。
+     * 只靠 TYPE_WINDOW_STATE_CHANGED 事件不可靠：抖音内部的窗口抖动、系统弹窗、
+     * 息屏唤醒都可能让最后一条事件停在"抖音"，于是退回桌面后浮层糊在老人桌面上不走
+     * （实测就是这样：桌面上半截被黑色时间带压着，底部换成上一个／下一个）。
+     * 每 1.5 秒问一次真实前台，不该出现就收掉，代价可以忽略。
+     */
+    private val syncTicker = object : Runnable {
+        override fun run() {
+            try {
+                syncOverlay()
+            } catch (e: Throwable) {
+                Log.e(TAG, "sync ticker failed", e)
+            }
+            handler.postDelayed(this, 1500L)
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -140,6 +158,10 @@ class SwipeService : AccessibilityService() {
         } catch (e: Throwable) {
             Log.e(TAG, "start overlay failed", e)
         }
+
+        // 起来之后立刻核对一次，并开始定时核对
+        handler.removeCallbacks(syncTicker)
+        handler.post(syncTicker)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

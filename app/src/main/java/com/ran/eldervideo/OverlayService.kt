@@ -24,7 +24,7 @@ import android.widget.Toast
 
 /**
  * 遮罩层服务。
- * 做法：一块全屏透明窗口盖在抖音上面，周边涂黑（挡住图标），中间留空（视频透出来），
+ * 一块全屏透明窗口盖在抖音上面，周边涂黑（挡住图标），中间留空（视频透出来），
  * 所有触摸由这一层接住，抖音收不到任何点击。
  */
 class OverlayService : Service() {
@@ -50,13 +50,11 @@ class OverlayService : Service() {
         super.onDestroy()
     }
 
-    // ---------------- 显示 / 隐藏 ----------------
-
     fun show() {
         if (visible) return
         if (!Settings.canDrawOverlays(this)) return
-        val v = overlay ?: buildOverlay().also { overlay = it }
         try {
+            val v = overlay ?: buildOverlay().also { overlay = it }
             wm.addView(v, windowParams())
             visible = true
         } catch (t: Throwable) {
@@ -73,8 +71,6 @@ class OverlayService : Service() {
         visible = false
     }
 
-    // ---------------- 界面 ----------------
-
     private fun buildOverlay(): View {
         val dm = DisplayMetrics()
         @Suppress("DEPRECATION")
@@ -84,7 +80,6 @@ class OverlayService : Service() {
 
         val root = FrameLayout(this)
 
-        // 底层：透明但吃掉所有落空的触摸，杜绝穿透到抖音
         val absorber = View(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
             isClickable = true
@@ -107,14 +102,10 @@ class OverlayService : Service() {
             )
         }
 
-        // 顶部：状态栏 + 频道栏（推荐/关注/朋友）+ 搜索
-        block(1f, 0.125f, 0f, 0f)
-        // 底部：原生导航栏 + 按钮底座
-        block(1f, 0.24f, 0f, 0.76f)
-        // 右侧：头像、点赞、评论、收藏、分享
-        block(0.23f, 0.55f, 0.77f, 0.29f)
+        block(1f, 0.125f, 0f, 0f)          // 顶部
+        block(1f, 0.24f, 0f, 0.76f)        // 底部
+        block(0.23f, 0.55f, 0.77f, 0.29f)  // 右侧
 
-        // 三颗按钮
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -135,14 +126,12 @@ class OverlayService : Service() {
     }
 
     private fun actionButton(label: String, colorHex: String, onClick: () -> Unit): TextView {
-        val metrics = resources.displayMetrics
-        val textPx = (metrics.widthPixels * 0.072f)
+        val textPx = resources.displayMetrics.widthPixels * 0.072f
         return TextView(this).apply {
             text = label
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_PX, textPx)
-            setBackgroundColor(Color.TRANSPARENT)
             background = GradientDrawable().apply {
                 cornerRadius = dp(16).toFloat()
                 setColor(Color.parseColor(colorHex))
@@ -174,8 +163,6 @@ class OverlayService : Service() {
         svc.goHome()
     }
 
-    // ---------------- 窗口参数 ----------------
-
     private fun windowParams(): WindowManager.LayoutParams {
         val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -200,19 +187,22 @@ class OverlayService : Service() {
     }
 
     private fun startForegroundInternal() {
-        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel("overlay", "遮罩服务", NotificationManager.IMPORTANCE_MIN)
-            ch.setShowBadge(false)
-            nm.createNotificationChannel(ch)
+        try {
+            val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val ch = NotificationChannel("overlay", "遮罩服务", NotificationManager.IMPORTANCE_MIN)
+                ch.setShowBadge(false)
+                nm.createNotificationChannel(ch)
+            }
+            val n = Notification.Builder(this, "overlay")
+                .setContentTitle("大视频")
+                .setContentText("正在为视频加遮罩")
+                .setSmallIcon(android.R.drawable.ic_menu_view)
+                .setOngoing(true)
+                .build()
+            startForeground(1001, n)
+        } catch (t: Throwable) {
         }
-        val n = Notification.Builder(this, "overlay")
-            .setContentTitle("大视频")
-            .setContentText("正在为视频加遮罩")
-            .setSmallIcon(android.R.drawable.ic_menu_view)
-            .setOngoing(true)
-            .build()
-        startForeground(1001, n)
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()

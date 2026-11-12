@@ -56,11 +56,18 @@ class SwipeService : AccessibilityService() {
 
         /** 直接问无障碍服务：系统认为现在最上层的那个窗口属于谁 */
         private fun realActivePackage(): String {
+            val inst = instance ?: return ""
+            try {
+                val list = inst.windows
+                val w = if (list != null) list.firstOrNull { it.isActive } ?: list.firstOrNull() else null
+                val p = w?.root?.packageName?.toString().orEmpty()
+                if (p.isNotEmpty()) return p
+            } catch (e: Throwable) {
+            }
+            // 兜底：小米上 windows 列表常常是空的（1.0.2 日志里 active= 一直是空），
+            // 这时问"当前活动窗口"，据此才认得出抖音外面盖着的那层系统弹窗。
             return try {
-                val inst = instance ?: return ""
-                val list = inst.windows ?: return ""
-                val w = list.firstOrNull { it.isActive } ?: list.firstOrNull()
-                w?.root?.packageName?.toString().orEmpty()
+                inst.rootInActiveWindow?.packageName?.toString().orEmpty()
             } catch (e: Throwable) {
                 ""
             }

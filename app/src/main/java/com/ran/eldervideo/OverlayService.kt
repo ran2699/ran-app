@@ -130,13 +130,13 @@ class OverlayService : Service() {
         }
 
         val time = TextView(this).apply {
-            color = Color.WHITE
+            setTextColor(Color.WHITE)
             textSize = 46f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             includeFontPadding = false
         }
         val info = TextView(this).apply {
-            color = Color.parseColor("#D0D0D0")
+            setTextColor(Color.parseColor("#D0D0D0"))
             textSize = 20f
             gravity = Gravity.END
             includeFontPadding = false
@@ -255,7 +255,7 @@ class OverlayService : Service() {
 
     private fun trigger(next: Boolean) {
         val now = System.currentTimeMillis()
-        if (now - lastTap < 450L) return   // 500ms 节流，防连点
+        if (now - lastTap < 450L) return   // 节流，防连点
         lastTap = now
 
         val svc = SwipeService.instance

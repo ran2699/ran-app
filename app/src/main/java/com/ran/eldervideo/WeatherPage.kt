@@ -38,7 +38,7 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
     init {
         orientation = VERTICAL
         setBackgroundColor(Color.parseColor("#0B0B0B"))
-        setPadding(dp(24), dp(46), dp(24), dp(30))
+        setPadding(dp(24), dp(46), dp(24), dp(205))
 
         addView(tv(CITY, 40f, Color.WHITE, Typeface.BOLD), lp())
 

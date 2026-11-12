@@ -1,5 +1,6 @@
 package com.ran.eldervideo
 
+import android.util.Log
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.view.accessibility.AccessibilityManager
 import android.app.Activity

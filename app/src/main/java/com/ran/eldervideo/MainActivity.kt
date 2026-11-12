@@ -35,8 +35,7 @@ import java.util.Locale
  * 老人桌面。
  * 顶部：超大时间 + 日期 + 大电池（<40% 黄，<20% 红）
  * 中间：两列三行立体大按键
- * 底部：红色"关掉手机"
- * 右下角：常驻大号红色返回键（所有页面都在）
+ * 底部左：红色"关掉手机"；底部右：常驻大号红色返回键（所有页面都在）
  */
 class MainActivity : Activity() {
 
@@ -122,7 +121,6 @@ class MainActivity : Activity() {
         root.addView(homePage)
         root.addView(datePage)
 
-        // 常驻返回键：所有页面都看得到
         backBtn = MechanicalButton(this).apply {
             circular = true
             faceColor = Color.parseColor("#D3261B")
@@ -185,15 +183,19 @@ class MainActivity : Activity() {
         }
         col.addView(hint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
 
+        // 底行：关机键占左边，右边留出返回键的位置
+        val bottomRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val off = MechanicalButton(this).apply {
             labelText = "关掉手机"
             faceColor = Color.parseColor("#D3261B")
             faceColorDark = Color.parseColor("#6E0A05")
-            labelSizeSp = 36f
+            labelSizeSp = 34f
             depthDp = 16f
             setOnPressListener { confirmOff() }
         }
-        col.addView(off, LinearLayout.LayoutParams(-1, dp(120)).apply { topMargin = dp(16) })
+        bottomRow.addView(off, LinearLayout.LayoutParams(0, dp(120), 1f))
+        bottomRow.addView(View(this), LinearLayout.LayoutParams(dp(160), dp(120)))
+        col.addView(bottomRow, LinearLayout.LayoutParams(-1, dp(120)).apply { topMargin = dp(16) })
 
         return col
     }
@@ -310,7 +312,6 @@ class MainActivity : Activity() {
             w.visibility = View.GONE
             root.addView(w, FrameLayout.LayoutParams(-1, -1))
             weatherPage = w
-            root.bringChildToFront(backBtn)
         }
         w.visibility = View.VISIBLE
         root.bringChildToFront(backBtn)

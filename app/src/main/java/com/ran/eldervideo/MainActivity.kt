@@ -659,28 +659,38 @@ class MainActivity : Activity() {
 
     /** 无障碍（滑动开关）是否已打开——关掉它，抖音里的上一个/下一个就按不动 */
     private fun a11yEnabled(): Boolean {
-        return try {
-            // 先读系统表：这是系统真正在用的那份名单，最准。
-            // 之前只问 AccessibilityManager，小米上它常常返回空列表，
-            // 结果服务明明开着，桌面底部还一直挂着"没打开"的红条。
-            val enabled = Settings.Secure.getInt(
+        // 一路不够：小米上 AccessibilityManager 返回空列表、Settings 表有时读不到，
+        // 单看任何一路都会误判成"没打开"，桌面底部那条红条就永远消不掉（实测 1.0.2 仍是）。
+        // 现在三路取并集，任一成立即算开。
+        val alive = try {
+            SwipeService.alive()
+        } catch (t: Throwable) {
+            false
+        }
+        val sec = try {
+            val on = Settings.Secure.getInt(
                 contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0
             ) == 1
             val list = Settings.Secure.getString(
                 contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
             ).orEmpty()
-            val mine = list.split(':').any {
+            on && list.split(':').any {
                 val s = it.trim()
                 s.startsWith("$packageName/") || s.startsWith("$packageName.")
             }
-            if (enabled && mine) return true
-            // 兜底：少数机型不写这张表，退回问系统服务
-            val mgr = getSystemService(AccessibilityManager::class.java)
-            mgr?.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
-                ?.any { it.resolveInfo?.serviceInfo?.packageName == packageName } == true
-        } catch (e: Throwable) {
+        } catch (t: Throwable) {
             false
         }
+        val mgrOn = try {
+            // 用 serviceInfo.id（形如 包名/.类名）比对，别用 resolveInfo——它经常是 null
+            getSystemService(AccessibilityManager::class.java)
+                ?.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                ?.any { it.id.startsWith("$packageName/") } == true
+        } catch (t: Throwable) {
+            false
+        }
+        Log.i("ElderUI", "a11y alive=$alive sec=$sec mgr=$mgrOn")
+        return alive || sec || mgrOn
     }
 
     private fun checkAccessibility() {

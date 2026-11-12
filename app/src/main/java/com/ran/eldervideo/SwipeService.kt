@@ -261,26 +261,30 @@ class SwipeService : AccessibilityService() {
         val kneeY = if (up) screenH * 0.56f else screenH * 0.44f
         val endY = if (up) screenH * 0.20f else screenH * 0.80f
 
-        // 两段式：前半段慢、后半段快。
-        // 抖音的上下翻页看的是"手指抬起那一瞬的速度"（ViewPager2 的 fling 判定），
-        // 匀速划过去的注入手势它不认——1.0.6/1.0.9 实测都是 dispatchGesture=true、
-        // gesture completed 齐全，画面一动不动。末端速度拉到 7000px/s 才翻得动。
-        val bend = screenW * 0.015f
-        val path1 = Path().apply {
-            moveTo(x, startY)
-            cubicTo(x + bend, startY - (startY - kneeY) * 0.5f, x - bend, kneeY + (startY - kneeY) * 0.2f, x, kneeY)
-        }
-        val path2 = Path().apply {
-            moveTo(x, kneeY)
-            lineTo(x, endY)
-        }
-        val s1 = GestureDescription.StrokeDescription(path1, 0L, 150L)
-        val stroke = s1.continueStroke(path2, 0L, 120L, false)
-        val gesture = GestureDescription.Builder()
-            .addStroke(stroke)
-            .build()
-
+        // 整段构建都放在 try 里：这些手势对象一旦参数不合法就会抛异常，
+        // 1.0.10 就是因为 continueStroke 的参数问题在 try 之外崩了整个进程，
+        // 浮层还来不及挂回去，老人屏幕上直接裸奔。
         return try {
+            // 两段式：前半段慢、后半段快。
+            // 抖音上下翻页看的是手指抬起那一瞬的速度（ViewPager2 的 fling 判定），
+            // 匀速划过去的注入手势它不认。末端速度拉到约 7000px/s 才翻得动。
+            val bend = screenW * 0.015f
+            val path1 = Path().apply {
+                moveTo(x, startY)
+                cubicTo(x + bend, startY - (startY - kneeY) * 0.5f, x - bend, kneeY + (startY - kneeY) * 0.2f, x, kneeY)
+            }
+            val path2 = Path().apply {
+                moveTo(x, kneeY)
+                lineTo(x, endY)
+            }
+            // continueStroke 要求上一段带 willContinue=true，否则抛
+            // IllegalStateException: Only strokes marked willContinue can be continued
+            val s1 = GestureDescription.StrokeDescription(path1, 0L, 150L, true)
+            val stroke = s1.continueStroke(path2, 0L, 120L, false)
+            val gesture = GestureDescription.Builder()
+                .addStroke(stroke)
+                .build()
+
             val ok = dispatchGesture(gesture, object : GestureResultCallback() {
                 override fun onCompleted(g: GestureDescription?) {
                     Log.i(TAG, "gesture completed up=$up")
@@ -292,7 +296,7 @@ class SwipeService : AccessibilityService() {
                     onDone?.invoke()
                 }
             }, handler)
-            Log.i(TAG, "dispatchGesture=$ok up=$up y=$startY->$endY screen=$screenW x $screenH")
+            Log.i(TAG, "dispatchGesture=$ok up=$up y=$startY->$kneeY->$endY screen=$screenW x $screenH")
             ok
         } catch (e: Throwable) {
             Log.e(TAG, "dispatchGesture exception", e)

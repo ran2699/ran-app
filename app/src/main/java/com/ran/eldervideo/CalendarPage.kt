@@ -42,7 +42,7 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
         }
         content = LinearLayout(context).apply {
             orientation = VERTICAL
-            setPadding(dp(18), dp(26), dp(18), dp(240))
+            setPadding(dp(18), dp(26), dp(18), dp(192))
         }
         scroll.addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))

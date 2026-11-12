@@ -6,6 +6,15 @@
 
 ---
 
+## 1.0.11 — 2026-11-13
+
+### 修
+- **1.0.10 会崩**：`continueStroke()` 要求上一段 stroke 带 `willContinue=true`，没带就直接抛
+  `IllegalStateException: Only strokes marked willContinue can be continued`；而且这段构建代码在
+  `try` 之外，一抛就把整个进程带走——浮层还来不及挂回去，屏幕上只剩裸奔的抖音。
+  现在补上 `willContinue=true`，并把整个手势构建挪进 `try`，最坏情况只是"这一下没滑成"。
+
+---
 ## 1.0.10 — 2026-11-13
 
 ### 修

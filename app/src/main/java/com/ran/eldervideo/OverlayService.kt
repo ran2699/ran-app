@@ -37,7 +37,8 @@ class OverlayService : Service() {
     companion object {
         private const val TAG = "ElderOverlay"
         private const val TOP_H_DP = 86
-        private const val BOTTOM_H_DP = 268
+        // 底栏总高（不含系统导航栏）：和老人桌面那条底栏同高同位
+        private const val BOTTOM_H_DP = 176
 
         /** 回桌面期间强制不显示浮层；由 MainActivity.onResume 解除 */
         @Volatile
@@ -145,6 +146,9 @@ class OverlayService : Service() {
 
     private var shownState: Boolean? = null
 
+    /** 触摸墙被临时摘下来过（注入手势期间），此时 parent 为空是正常的，不要误判成"被系统摘掉" */
+    private var maskDetached = false
+
     private val pendingShow = Runnable { applyVisibilityNow(true) }
     private val pendingHide = Runnable { applyVisibilityNow(false) }
 
@@ -185,7 +189,7 @@ class OverlayService : Service() {
         if (v && returningHome) return
         if (v == shownState) return
         // 被系统摘掉的浮层要先补回来，否则会出现"明明在抖音里却没有遮罩"
-        if (v && (maskView?.parent == null || topView?.parent == null || bottomView?.parent == null)) {
+        if (v && !maskDetached && (maskView?.parent == null || topView?.parent == null || bottomView?.parent == null)) {
             rebuildOverlay()
         }
         shownState = v
@@ -225,24 +229,61 @@ class OverlayService : Service() {
      * 注入的滑动手势和真人手指走的是同一套事件分发，会先命中我们这层最上面的浮层。
      * 所以每次发滑动前把触摸墙设成"不接收触摸"，抖音才能收到这一下；完成后再收回来。
      */
-    private fun setMaskTouchable(touchable: Boolean) {
+    /**
+     * 注入手势前把整层触摸墙从窗口上摘下来。
+     * 1.0.6 之前只是给墙加 FLAG_NOT_TOUCHABLE，实测抖音一点反应都没有——合成手势照样被这层
+     * 全屏窗口接走（日志里 dispatchGesture=true、gesture completed 齐全，画面就是不动）。
+     * 摘掉窗口才是干净的：此刻屏幕上没有自己的窗口挡着，抖音直接收接这一下。
+     */
+    private fun detachMask() {
         handler.post {
-            val v = maskView ?: return@post
             try {
-                val lp = v.layoutParams as WindowManager.LayoutParams
-                lp.flags = if (touchable) baseFlags()
-                else baseFlags() or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                wm.updateViewLayout(v, lp)
-                Log.i(TAG, "mask touchable=$touchable")
+                val v = maskView ?: return@post
+                if (v.parent != null) {
+                    wm.removeView(v)
+                    maskDetached = true
+                    Log.i(TAG, "mask detached")
+                }
             } catch (e: Throwable) {
-                Log.e(TAG, "mask touchable failed", e)
+                Log.e(TAG, "detach mask failed", e)
             }
         }
     }
 
-    /** 兜底：万一回调没回来，1.2 秒后一定把触摸墙收回来 */
+    /** 把手势发完的触摸墙挂回去；顶栏底栏跟着重新抬一遍，否则按钮点不动 */
+    private fun attachMask() {
+        handler.post {
+            try {
+                val v = maskView ?: return@post
+                if (v.parent == null) {
+                    wm.addView(
+                        v,
+                        WindowManager.LayoutParams(
+                            WindowManager.LayoutParams.MATCH_PARENT,
+                            WindowManager.LayoutParams.MATCH_PARENT,
+                            overlayType(), baseFlags(), PixelFormat.TRANSLUCENT
+                        ).apply { gravity = Gravity.TOP or Gravity.START }
+                    )
+                }
+                // 后加进 WindowManager 的窗口在上面，顶栏/底栏必须重新排到触摸墙之上
+                listOf(topView, bottomView).forEach { vv ->
+                    if (vv != null && vv.parent != null) {
+                        val lp = vv.layoutParams as WindowManager.LayoutParams
+                        wm.removeView(vv)
+                        wm.addView(vv, lp)
+                    }
+                }
+                maskDetached = false
+                Log.i(TAG, "mask attached")
+            } catch (e: Throwable) {
+                Log.e(TAG, "attach mask failed", e)
+            }
+        }
+    }
+
+    /** 兜底：万一手势回调没回来，1.2 秒后一定把触摸墙挂回去 */
     private fun restoreMaskSoon() {
-        handler.postDelayed({ setMaskTouchable(true) }, 1200L)
+        handler.postDelayed({ attachMask() }, 1200L)
     }
 
     override fun onDestroy() {
@@ -341,52 +382,50 @@ class OverlayService : Service() {
         refreshClock()
     }
 
-    /** ③ 底部按键带 */
+    /** ③ 底部按键带：左边「上一个 / 下一个」横向并排，右边红球返回桌面 */
     private fun buildBottomBar() {
-        // 左边一列两个整宽大键（上一个 / 下一个），右边一颗大圆球返回桌面。
-        // 三键并排会把每个键挤到 90dp 宽，字只能缩成一条线——老人根本看不清。
+        // 和老人桌面共用同一条底栏规格：16 边距 + 144 键高 + 16 边距 = 176dp。
+        // 桌面那边这一格的宽度给「关掉手机」，抖音里换成两个方向键横向并排。
         val navH = navigationBarHeight()
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Color.BLACK)
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18), dp(16), dp(18), dp(16) + navH)
+            setPadding(dp(16), dp(16), dp(16), dp(16) + navH)
         }
 
         val prev = MechanicalButton(this).apply {
             labelText = "上一个"
             faceColor = Color.parseColor("#1B5FD9")
             faceColorDark = Color.parseColor("#0A2E63")
-            labelSizeSp = 44f
-            depthDp = 26f
+            labelSizeSp = 30f
+            depthDp = 18f
             setOnPressListener { trigger(false) }
         }
         val next = MechanicalButton(this).apply {
             labelText = "下一个"
             faceColor = Color.parseColor("#1B5FD9")
             faceColorDark = Color.parseColor("#0A2E63")
-            labelSizeSp = 44f
-            depthDp = 26f
+            labelSizeSp = 30f
+            depthDp = 18f
             setOnPressListener { trigger(true) }
         }
         val home = MechanicalButton(this).apply {
             circular = true
             faceColor = Color.parseColor("#D3261B")
             faceColorDark = Color.parseColor("#6E0A05")
-            depthDp = 34f
+            depthDp = 26f
             setOnPressListener { goHome() }
         }
 
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        col.addView(prev, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply { bottomMargin = dp(14) })
-        col.addView(next, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        // 两键横向均分左区，中间留一道缝
+        val arrows = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        arrows.addView(prev, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply { rightMargin = dp(7) })
+        arrows.addView(next, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply { leftMargin = dp(7) })
 
-        row.addView(col, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
-        row.addView(home, LinearLayout.LayoutParams(dp(168), LinearLayout.LayoutParams.MATCH_PARENT).apply { leftMargin = dp(14) })
+        row.addView(arrows, LinearLayout.LayoutParams(0, dp(144), 1f))
+        row.addView(home, LinearLayout.LayoutParams(dp(144), dp(144)).apply { leftMargin = dp(14) })
 
-        // 高度 = 内容高度 + 系统导航栏高度，三个键整体抬到导航栏之上
         addView(
             row,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -428,15 +467,15 @@ class OverlayService : Service() {
         Log.i(TAG, "trigger next=$next")
         // 注入的手势和真人手指走同一套分发，会先落到最上面这层触摸墙上。
         // 先让墙"不接收触摸"，等窗口属性生效再注入手势，完事立刻收回。
-        setMaskTouchable(false)
+        detachMask()
         handler.postDelayed({
-            val ok = svc.swipe(next) { handler.post { setMaskTouchable(true) } }
+            val ok = svc.swipe(next) { handler.post { attachMask() } }
             if (!ok) {
-                handler.post { setMaskTouchable(true) }
+                handler.post { attachMask() }
                 toast("滑动没发出去")
             }
             restoreMaskSoon()
-        }, 130L)
+        }, 120L)
     }
 
     /**

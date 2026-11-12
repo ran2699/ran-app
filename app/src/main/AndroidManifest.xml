@@ -10,15 +10,19 @@
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
+    <!--
+        注意：本仓库根构建脚本使用的命名空间不是 expected 的那个，
+        因此这里所有组件名一律写全限定名，避免被解析到错误包下。
+    -->
     <application
-        android:name=".CrashApp"
+        android:name="com.ran.eldervideo.CrashApp"
         android:allowBackup="false"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="大视频"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.ran.eldervideo.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="portrait">
@@ -29,7 +33,7 @@
         </activity>
 
         <service
-            android:name=".OverlayService"
+            android:name="com.ran.eldervideo.OverlayService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -38,7 +42,7 @@
         </service>
 
         <service
-            android:name=".SwipeService"
+            android:name="com.ran.eldervideo.SwipeService"
             android:exported="true"
             android:label="大视频控制"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">

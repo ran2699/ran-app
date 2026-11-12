@@ -176,11 +176,20 @@ class MechanicalButton @JvmOverloads constructor(
         rect.set(pad + taper + 1.8f * d, fy + 1.8f * d, w - pad - taper - 1.8f * d, fb - 1.8f * d)
         canvas.drawRoundRect(rect, r, r, strokePaint)
 
-        // ⑦ 文字
+        // ⑦ 文字：先按请求字号试，超宽就等比缩到键面内，绝不压出边缘
         if (labelText.isNotEmpty()) {
-            textPaint.textSize = labelSizeSp * d
+            val maxTextW = (w - 2f * (pad + taper) - 20f * d).coerceAtLeast(40f)
+            var ts = labelSizeSp * d
+            textPaint.textSize = ts
+            val tw = textPaint.measureText(labelText)
+            if (tw > maxTextW) {
+                ts *= maxTextW / tw
+                textPaint.textSize = ts
+            }
             textPaint.setShadowLayer(4f * d, 0f, 3f * d, Color.argb(215, 0, 0, 0))
-            canvas.drawText(labelText, w / 2f, (fy + fb) / 2f + textPaint.textSize * 0.36f, textPaint)
+            // 用字体度量算基线，大字号时才不会顶到键面上沿
+            val fm = textPaint.fontMetrics
+            canvas.drawText(labelText, w / 2f, (fy + fb) / 2f - (fm.ascent + fm.descent) / 2f, textPaint)
         }
     }
 

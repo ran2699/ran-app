@@ -6,26 +6,9 @@ plugins {
 }
 
 // 仓库里只放 base64 文本，构建时在这里还原成 keystore 文件
----
-            kf.writeBytes(java.util.Base64.getDecoder().decode(src.readText().trim()))
-+++
-            // 注意：Kotlin DSL 里 `java` 会被解析成 Gradle 的 Java 扩展，
-            // 所以不能写 java.util.Base64，必须走文件顶部的 import。
-            kf.writeBytes(Base64.getDecoder().decode(src.readText().trim()))
 // （workflow 文件不允许外部改动，所以解码放在构建脚本里做）
-run {
-    val kf = file("../ci/signing.p12")
-    if (!kf.exists()) {
-        val src = file("../ci/signing.b64")
-        if (src.exists()) {
-            kf.parentFile?.mkdirs()
-            kf.writeBytes(java.util.Base64.getDecoder().decode(src.readText().trim()))
-        }
-    }
-}
-+++
-// 仓库里只放 base64 文本，构建时在这里还原成 keystore 文件
-// （workflow 文件不允许外部改动，所以解码放在构建脚本里做）
+// 注意：Kotlin DSL 里 `java` 会被解析成 Gradle 的 Java 扩展，
+// 所以不能写 java.util.Base64，必须走文件顶部的 import。
 run {
     val kf = file("../ci/signing.p12")
     if (!kf.exists()) {
@@ -33,21 +16,6 @@ run {
         if (src.exists()) {
             kf.parentFile?.mkdirs()
             kf.writeBytes(Base64.getDecoder().decode(src.readText().trim()))
-        }
-    }
-}
-+++
-            kf.writeBytes(Base64.getDecoder().decode(src.readText().trim()))
-
-// 仓库里只放 base64 文本，构建时在这里还原成 keystore 文件
-// （workflow 文件不允许外部改动，所以解码放在构建脚本里做）
-run {
-    val kf = file("../ci/signing.p12")
-    if (!kf.exists()) {
-        val src = file("../ci/signing.b64")
-        if (src.exists()) {
-            kf.parentFile?.mkdirs()
-            kf.writeBytes(java.util.Base64.getDecoder().decode(src.readText().trim()))
         }
     }
 }

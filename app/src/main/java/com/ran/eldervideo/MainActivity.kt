@@ -1,5 +1,7 @@
 package com.ran.eldervideo
 
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.view.accessibility.AccessibilityManager
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -58,6 +60,7 @@ class MainActivity : Activity() {
     private var lastSecretAt = 0L
     private var pinPage: View? = null
     private var pinTimer: Runnable? = null
+    private var a11yTip: View? = null
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -78,6 +81,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        checkAccessibility()
         try {
             OverlayService.setVisible(false)
             // 稍等一会儿再解除屏蔽，防止抖音的滞后事件把浮层又弹出来
@@ -151,6 +155,7 @@ class MainActivity : Activity() {
         )
 
         setContentView(root)
+        checkAccessibility()
         refreshClock()
     }
 
@@ -612,6 +617,49 @@ class MainActivity : Activity() {
 
     private fun toast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    /** 无障碍（滑动开关）是否已打开——关掉它，抖音里的上一个/下一个就按不动 */
+    private fun a11yEnabled(): Boolean {
+        return try {
+            val mgr = getSystemService(AccessibilityManager::class.java)
+            mgr?.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                ?.any { it.resolveInfo?.serviceInfo?.packageName == packageName } == true
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    private fun checkAccessibility() {
+        if (a11yEnabled()) {
+            a11yTip?.let { v -> runCatching { root.removeView(v) } }
+            a11yTip = null
+            return
+        }
+        if (a11yTip != null) return
+        val bar = TextView(this).apply {
+            text = "抖音滑动没打开 · 点这里打开"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#C62828"))
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28f)
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(16), dp(10), dp(16))
+            setOnClickListener {
+                runCatching {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    Toast.makeText(this@MainActivity, "找到「大视频控制」，打开它", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        root.addView(
+            bar,
+            FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                bottomMargin = dp(224)
+                leftMargin = dp(16)
+                rightMargin = dp(16)
+            }
+        )
+        a11yTip = bar
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()

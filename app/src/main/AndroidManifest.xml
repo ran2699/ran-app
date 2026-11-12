@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.ran.agent">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 包名由 build.gradle.kts 的 namespace 决定（AGP 8 不再允许在 manifest 里写 package） -->
 
     <!-- 自研天气需要联网 -->
     <uses-permission android:name="android.permission.INTERNET" />

@@ -469,7 +469,8 @@ class OverlayService : Service() {
         // 先让墙"不接收触摸"，等窗口属性生效再注入手势，完事立刻收回。
         detachMask()
         handler.postDelayed({
-            val ok = svc.swipe(next) { handler.post { attachMask() } }
+            // 抬手后抖音还要跑完翻页动画，隔 350ms 再把触摸墙挂回去
+            val ok = svc.swipe(next) { handler.postDelayed({ attachMask() }, 350L) }
             if (!ok) {
                 handler.post { attachMask() }
                 toast("滑动没发出去")

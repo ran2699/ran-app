@@ -163,12 +163,12 @@ class MainActivity : Activity() {
             depthDp = 18f
             setOnPressListener { onBackKey() }
         }
+        // 底栏规格（全 App 统一，抖音浮层同一套）：16 边距 + 144 键高 + 16 边距 = 176dp
         root.addView(
             backBtn,
-            FrameLayout.LayoutParams(dp(176), dp(176), Gravity.BOTTOM or Gravity.END).apply {
-                rightMargin = dp(22)
-                // 抬到系统导航栏之上，别被那三个白点压住
-                bottomMargin = dp(54)
+            FrameLayout.LayoutParams(dp(144), dp(144), Gravity.BOTTOM or Gravity.END).apply {
+                rightMargin = dp(16)
+                bottomMargin = dp(16)
             }
         )
 
@@ -183,10 +183,10 @@ class MainActivity : Activity() {
         }
         root.addView(
             offBar,
-            FrameLayout.LayoutParams(-1, dp(128), Gravity.BOTTOM or Gravity.START).apply {
-                leftMargin = dp(22)
-                rightMargin = dp(22 + 176 + 14)
-                bottomMargin = dp(80)
+            FrameLayout.LayoutParams(-1, dp(144), Gravity.BOTTOM or Gravity.START).apply {
+                leftMargin = dp(16)
+                rightMargin = dp(16 + 144 + 14)
+                bottomMargin = dp(16)
             }
         )
 
@@ -230,9 +230,9 @@ class MainActivity : Activity() {
         top.addView(battery, LinearLayout.LayoutParams(dp(160), dp(80)))
         col.addView(top, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
 
-        // 底部两枚常驻键是绝对定位：红球占 176dp 高、关机键顶到 208dp。
-        // 网格必须留够 240dp，否则第三行会被压住（老包实测「手电筒」被关机键盖掉一半）。
-        col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(240) })
+        // 底部两枚常驻键是绝对定位，整条底栏占 176dp，网格再留 16dp 缝 → 192dp。
+        // 少于这个数第三行会被压住（老包实测「手电筒」被关机键盖掉一半）。
+        col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(192) })
 
         hint = TextView(this).apply {
             setTextColor(Color.parseColor("#111111"))

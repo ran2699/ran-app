@@ -68,7 +68,7 @@ class SwipeService : AccessibilityService() {
             .addStroke(GestureDescription.StrokeDescription(path, 0L, 200L))
             .build()
 
-        dispatchGesture(gesture, object : GestureResultCallback() {
+        dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {}
             override fun onCancelled(gestureDescription: GestureDescription?) {
                 // 视频还在加载时偶尔会取消，重试一次

@@ -34,7 +34,7 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
     init {
         orientation = VERTICAL
         setBackgroundColor(PAPER)
-        setPadding(dp(18), dp(26), dp(18), dp(150))
+        setPadding(dp(18), dp(26), dp(18), dp(200))
         build()
     }
 

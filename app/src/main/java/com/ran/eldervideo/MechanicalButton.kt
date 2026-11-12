@@ -205,21 +205,23 @@ class MechanicalButton @JvmOverloads constructor(
         val w = r - l
         val h = b - t
         val cx = (l + r) / 2f
-        val R = (min(w, h * 0.60f) / 2f).coerceAtLeast(10f)
-        val sideH = (depthDp * d).coerceAtLeast(h * 0.30f).coerceAtMost(h * 0.50f)
+        // 球必须完全落在自己的格子里：半径 = (可用高 - 侧壁 - 余量) / 2，否则底弧被裁、看着像溢出
+        val sideH = (depthDp * d).coerceAtLeast(h * 0.22f).coerceAtMost(h * 0.34f)
         val sinkPx = sink * sideH * 0.90f
-        val topCy = t + R + sinkPx
-        val botCy = b - sideH * 0.35f - R * 0.10f
+        val availH = h - sideH - 6f * d
+        val R = min(availH / 2f, w / 2f - 3f * d).coerceAtLeast(10f)
+        val topCy = t + 3f * d + sinkPx + R
+        val botCy = b - sideH - R
 
         paint.style = Paint.Style.FILL
         paint.shader = null
 
         // 投影
-        paint.color = Color.argb(105, 0, 0, 0)
-        rect.set(cx - R * 1.05f, b - sideH * 0.75f, cx + R * 1.05f, b + sideH * 0.30f)
+        paint.color = Color.argb(110, 0, 0, 0)
+        rect.set(cx - R * 1.02f, b - sideH * 0.60f, cx + R * 1.02f, b - 1f * d)
         c.drawOval(rect, paint)
-        paint.color = Color.argb(165, 0, 0, 0)
-        rect.set(cx - R * 0.86f, b - sideH * 0.42f, cx + R * 0.86f, b + sideH * 0.06f)
+        paint.color = Color.argb(170, 0, 0, 0)
+        rect.set(cx - R * 0.84f, b - sideH * 0.42f, cx + R * 0.84f, b - 3f * d)
         c.drawOval(rect, paint)
 
         // 圆柱侧壁

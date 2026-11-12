@@ -80,25 +80,34 @@ class SwipeService : AccessibilityService() {
                     OverlayService.setVisible(false)
                     return
                 }
-                var want = isTiktokForeground()
+                val self = instance?.packageName ?: "com.ran.eldervideo"
+                // 真实活动窗口最可信。抖音是单 Activity 应用，切视频、进直播间都不一定发
+                // TYPE_WINDOW_STATE_CHANGED，事件里的包名会一直停在离开前的那个应用上
+                // （1.0.5 实测：人在抖音里，fg 还是自家桌面，浮层被"桌面在前台"这条规则误关掉，
+                //  满屏原生抖音、广告也没挡住）。所以 actual 有值就只信 actual。
                 val actual = realActivePackage()
-                // 自家桌面在前台（抖音可能在后台继续播着直播），浮层必须收掉，否则会糊在桌面上
-                val self = instance?.packageName ?: "com.ran.agent"
-                if (fgPkg == self || actual == self) {
-                    Log.i(TAG, "sync overlay 自家桌面在前台 fg=$fgPkg active=$actual，强制隐藏")
-                    OverlayService.setVisible(false)
-                    return
-                }
-                if (!want && actual.isNotEmpty() && TIKTOK_PACKAGES.any { actual.startsWith(it) }) {
-                    // 事件里的包名被系统弹窗带偏了，以真实活动窗口为准
-                    want = true
-                    Log.i(TAG, "sync overlay 事件包名 $fgPkg 不算数，实际窗口 $actual 是抖音")
+                val want: Boolean
+                if (actual.isNotEmpty()) {
+                    if (actual == self || actual.startsWith("$self.")) {
+                        Log.i(TAG, "sync overlay 实际窗口是自家桌面 actual=$actual，隐藏")
+                        OverlayService.setVisible(false)
+                        return
+                    }
+                    want = TIKTOK_PACKAGES.any { actual.startsWith(it) }
+                } else {
+                    // 拿不到活动窗口时退回事件包名
+                    if (fgPkg == self || fgPkg.startsWith("$self.")) {
+                        Log.i(TAG, "sync overlay 事件包名是自家桌面 fg=$fgPkg，隐藏")
+                        OverlayService.setVisible(false)
+                        return
+                    }
+                    want = isTiktokForeground()
                 }
                 // 服务被系统回收过，实例没了就没人能开浮层——这里补一刀
                 if (want && !OverlayService.alive()) {
                     instance?.let { OverlayService.start(it) }
                 }
-                Log.i(TAG, "sync overlay fg=$fgPkg active=$actual want=$want")
+                Log.i(TAG, "sync overlay fg=$fgPkg actual=$actual want=$want")
                 OverlayService.setVisible(want)
             } catch (e: Throwable) {
                 Log.e(TAG, "sync overlay failed", e)

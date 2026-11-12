@@ -123,7 +123,6 @@ class OverlayService : Service() {
 
         val root = FrameLayout(this)
 
-        // 吃掉所有落空的触摸
         val absorber = View(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
             isClickable = true
@@ -173,7 +172,7 @@ class OverlayService : Service() {
             }
         )
 
-        // ---- 右侧遮挡（点赞/评论/分享一列）----
+        // ---- 右侧遮挡 ----
         val rightBlock = View(this).apply {
             setBackgroundColor(Color.BLACK)
             isClickable = true
@@ -317,7 +316,9 @@ class OverlayService : Service() {
         val week = arrayOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")[c.get(Calendar.DAY_OF_WEEK) - 1]
         val m = c.get(Calendar.MONTH) + 1
         val d = c.get(Calendar.DAY_OF_MONTH)
-        return "$m月$d日 $week\n电量 $battery()%"
+        val bat = battery()
+        // 注意：竖线中文字符必须用 ${} 包住，否则 Kotlin 会把它当成标识符的一部分
+        return "${m}月${d}日 ${week}\n电量 ${bat}%"
     }
 
     private fun battery(): Int = try {

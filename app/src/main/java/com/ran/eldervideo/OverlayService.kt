@@ -36,7 +36,7 @@ class OverlayService : Service() {
 
     companion object {
         private const val TAG = "ElderOverlay"
-        private const val TOP_H_DP = 66
+        private const val TOP_H_DP = 72
         private const val BOTTOM_H_DP = 200
 
         /** 回桌面期间强制不显示浮层；由 MainActivity.onResume 解除 */
@@ -225,11 +225,12 @@ class OverlayService : Service() {
     /** ② 顶部细黑带：从屏幕最上沿开始，盖住系统状态栏 */
     private fun buildTopBar() {
         val sb = statusBarHeight()
+        // 竖向排：一行大字时间，一行日期电量。并排会挤成两行、顶出黑带
         val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(Color.BLACK)
-            setPadding(dp(20), sb, dp(20), 0)
+            setPadding(dp(24), sb, dp(24), 0)
         }
         val time = TextView(this).apply {
             setTextColor(Color.WHITE)
@@ -239,12 +240,15 @@ class OverlayService : Service() {
         }
         val info = TextView(this).apply {
             setTextColor(Color.parseColor("#EDEDED"))
-            textSize = 18f
-            gravity = Gravity.END
+            textSize = 17f
+            gravity = Gravity.START
             includeFontPadding = false
+            setSingleLine(true)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
-        bar.addView(time, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(info, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        bar.addView(time, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        bar.addView(info, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
         timeText = time
         dateText = info
 
@@ -311,7 +315,7 @@ class OverlayService : Service() {
             timeText?.text = SimpleDateFormat("HH:mm", Locale.CHINA).format(now)
             val md = SimpleDateFormat("M月d日", Locale.CHINA).format(now)
             val week = SimpleDateFormat("EEEE", Locale.CHINA).format(now)
-            dateText?.text = "$md $week  电量 ${batteryPercent()}%"
+            dateText?.text = "$md $week  ${batteryPercent()}%"
         } catch (e: Throwable) {
             Log.e(TAG, "refreshClock failed", e)
         }

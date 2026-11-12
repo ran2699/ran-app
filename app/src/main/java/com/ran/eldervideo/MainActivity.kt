@@ -70,6 +70,11 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         try {
+            // 回到老人桌面就把抖音那套控制条收起来
+            OverlayService.setVisible(false)
+        } catch (t: Throwable) {
+        }
+        try {
             refreshClock()
             refreshHint()
         } catch (t: Throwable) {
@@ -125,7 +130,6 @@ class MainActivity : Activity() {
             setPadding(dp(24), dp(30), dp(24), dp(24))
         }
 
-        // 顶部：时间 / 日期 / 电池
         val top = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -150,10 +154,8 @@ class MainActivity : Activity() {
         top.addView(battery, LinearLayout.LayoutParams(dp(160), dp(80)))
         col.addView(top, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
 
-        // 六个大按键
         col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f))
 
-        // 缺权限提示
         hint = TextView(this).apply {
             setTextColor(Color.parseColor("#111111"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
@@ -164,7 +166,6 @@ class MainActivity : Activity() {
         }
         col.addView(hint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
 
-        // 关掉手机
         val off = MechanicalButton(this).apply {
             labelText = "关掉手机"
             faceColor = Color.parseColor("#D3261B")
@@ -234,6 +235,8 @@ class MainActivity : Activity() {
         }
         try {
             OverlayService.start(this)
+            OverlayService.setVisible(true)
+            handler.postDelayed({ OverlayService.setVisible(true) }, 900L)
         } catch (t: Throwable) {
             toast("控制条没起来")
         }
@@ -366,14 +369,12 @@ class MainActivity : Activity() {
         timeText.text = SimpleDateFormat("HH:mm", Locale.CHINA).format(now)
         val md = SimpleDateFormat("M月d日", Locale.CHINA).format(now)
         val wk = SimpleDateFormat("EEEE", Locale.CHINA).format(now)
-        val pct = batteryPercent()
-        battery.percent = pct
+        battery.percent = batteryPercent()
         dateText.text = "$md  $wk"
     }
 
     private fun refreshHint() {
-        val overlayOk = Settings.canDrawOverlays(this)
-        if (overlayOk) {
+        if (Settings.canDrawOverlays(this)) {
             hint.visibility = View.GONE
         } else {
             hint.visibility = View.VISIBLE

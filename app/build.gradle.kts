@@ -1,7 +1,13 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+---
+            kf.writeBytes(java.util.Base64.getDecoder().decode(src.readText().trim()))
++++
+            kf.writeBytes(Base64.getDecoder().decode(src.readText().trim()))
 
 // 仓库里只放 base64 文本，构建时在这里还原成 keystore 文件
 // （workflow 文件不允许外部改动，所以解码放在构建脚本里做）

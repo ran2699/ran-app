@@ -6,6 +6,21 @@
 
 ---
 
+## 1.0.2 — 2026-11-13
+
+### 修
+- **无障碍明明开着，桌面底部却一直挂红条**：`a11yEnabled()` 只问 `AccessibilityManager`，
+  小米 15 上它返回空列表，于是提示条永远消不掉。改成先读 `Settings.Secure` 的
+  `ACCESSIBILITY_ENABLED` + `ENABLED_ACCESSIBILITY_SERVICES`（系统真正在用的那份名单，
+  实测能读到 `com.ran.eldervideo/.SwipeService`），读不到再退回问系统服务。
+- **那条红条压在第三行按键上**：原位置是 `Gravity.BOTTOM` + 224dp 底距，正好盖住
+  「手电筒／空」两枚键，老人点不到。现在移到时间下方顶部，字号 28sp→22sp、留白收窄。
+- **从抖音退回桌面后浮层残留**：实测桌面顶部被黑色时间带压着（大字号日期只露下半截），
+  底部变成「上一个／下一个」。原因是浮层只靠 `TYPE_WINDOW_STATE_CHANGED` 事件开关，
+  抖音内部窗口抖动／系统弹窗让最后一条事件停在抖音上，就没人再收它。
+  现在 SwipeService 每 1.5 秒核对一次真实前台，不该出现就收掉。
+
+---
 ## 1.0.1 — 2026-11-13
 
 ### 修

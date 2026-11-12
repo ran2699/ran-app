@@ -30,11 +30,22 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
     private val BROWN = Color.parseColor("#6D4C41")
 
     private val serif: Typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+    private lateinit var content: LinearLayout
 
     init {
         orientation = VERTICAL
         setBackgroundColor(PAPER)
-        setPadding(dp(18), dp(26), dp(18), dp(200))
+        // 整页可滚动：内容比屏幕高时不再把最下面一行裁掉
+        val scroll = android.widget.ScrollView(context).apply {
+            isFillViewport = true
+            setBackgroundColor(PAPER)
+        }
+        content = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(18), dp(26), dp(18), dp(190))
+        }
+        scroll.addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         build()
     }
 
@@ -66,17 +77,17 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
             setBackgroundColor(RED)
             setPadding(dp(16), dp(12), dp(16), dp(12))
         }
-        val left = label("${Lunar.monthName(ld.month)}月", 40f, Color.WHITE, Gravity.START)
-        val right = label("$y.$mo", 34f, Color.WHITE, Gravity.END)
+        val left = label("${Lunar.monthName(ld.month)}月", 38f, Color.WHITE, Gravity.START)
+        val right = label("$y.$mo", 30f, Color.WHITE, Gravity.END)
         titleBar.addView(left, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         titleBar.addView(right, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-        addView(titleBar, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        content.addView(titleBar, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
         // ② 超大红字：阳历日
-        val bigDay = label("$dy", 190f, RED)
+        val bigDay = label("$dy", 158f, RED)
         bigDay.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
         // 高度自适应：190sp 的字塞进 weight=1 的格子里会被裁掉上下边
-        addView(bigDay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+        content.addView(bigDay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(6)
             bottomMargin = dp(6)
         })
@@ -86,12 +97,12 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
             orientation = VERTICAL
             gravity = Gravity.CENTER
         }
-        weekRow.addView(label(weekCn, 54f, RED), LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+        weekRow.addView(label(weekCn, 48f, RED), LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
         weekRow.addView(
-            label("$mo 月 $dy 日", 26f, BROWN),
+            label("$mo 月 $dy 日", 24f, BROWN),
             LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) }
         )
-        addView(weekRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+        content.addView(weekRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = dp(14)
         })
 
@@ -102,14 +113,14 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
             setPadding(0, dp(10), 0, dp(10))
         }
         lunarRow.addView(
-            label("农历 ${Lunar.monthText(ld)}${Lunar.dayText(ld)}", 46f, DEEP_RED),
+            label("农历 ${Lunar.monthText(ld)}${Lunar.dayText(ld)}", 40f, DEEP_RED),
             LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
         )
         lunarRow.addView(
-            label("${Lunar.ganZhi(ld.year)}年 · 属${Lunar.zodiac(ld.year)}", 28f, BROWN),
+            label("${Lunar.ganZhi(ld.year)}年 · 属${Lunar.zodiac(ld.year)}", 26f, BROWN),
             LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
         )
-        addView(lunarRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        content.addView(lunarRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
         // ⑤ 方框：几行实在的数
         val box = LinearLayout(context).apply {
@@ -129,17 +140,17 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
         val target = if (cal.timeInMillis < nyThis.timeInMillis) nyThis else nyNext
         val toSpring = ((target.timeInMillis - cal.timeInMillis) / 86400000L).toInt()
 
-        box.addView(label("今年第 $dayOfYear 天", 30f, DEEP_RED, Gravity.CENTER))
+        box.addView(label("今年第 $dayOfYear 天", 28f, DEEP_RED, Gravity.CENTER))
         box.addView(
-            label("还有 $toSpring 天过春节", 30f, DEEP_RED, Gravity.CENTER),
+            label("还有 $toSpring 天过春节", 28f, DEEP_RED, Gravity.CENTER),
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }
         )
         box.addView(
-            label("$mo 月共 $monthDays 天", 30f, DEEP_RED, Gravity.CENTER),
+            label("$mo 月共 $monthDays 天", 28f, DEEP_RED, Gravity.CENTER),
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }
         )
-        addView(box, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        content.addView(box, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         // 剩下的空白吃掉，内容整块靠上，不再挤压大数字
-        addView(android.view.View(context), LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        content.addView(android.view.View(context), LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
     }
 }

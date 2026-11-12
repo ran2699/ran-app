@@ -66,7 +66,8 @@ class MechanicalButton @JvmOverloads constructor(
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
         val pad = 6f * d
-        val depth = minOf(depthDp * d * 1.9f, h * 0.26f)
+        // 侧壁要"厚"才有真键盘的手感：取控件高度的 1/3 左右
+        val depth = minOf(depthDp * d * 2.4f, h * 0.34f)
         val o = pressShift(depth)
         if (circular) drawCircleKey(canvas, w, h, pad, depth, o)
         else drawRectKey(canvas, w, h, pad, depth, o)
@@ -80,15 +81,20 @@ class MechanicalButton @JvmOverloads constructor(
         val faceBottom = h - pad - depth
         if (faceBottom - top < 20f) return
 
-        // ① 底座：最暗，键"陷进去"的洞
+        // ⓪ 接地投影：键块压在桌面上的影子
         basePaint.shader = null
+        basePaint.color = Color.argb(150, 0, 0, 0)
+        rect.set(l - 2f * d, faceBottom + depth * 0.55f + o, rr + 2f * d, faceBottom + depth + 8f * d + o)
+        canvas.drawRoundRect(rect, r * 1.2f, r * 1.2f, basePaint)
+
+        // ① 底座：最暗，键"陷进去"的洞
         basePaint.color = Color.parseColor("#03040A")
         rect.set(l, top + 2f * d, rr, faceBottom + depth)
         canvas.drawRoundRect(rect, r, r, basePaint)
 
         // ② 侧壁：底部满宽、向上收窄，颜色由暗到亮
-        val steps = 18
-        val taper = 9f * d
+        val steps = 24
+        val taper = 12f * d
         for (i in 0 until steps) {
             val t = i / (steps - 1f)          // 0 = 最下，1 = 最上
             val yBottom = faceBottom + depth * (1f - t) + o
@@ -158,7 +164,7 @@ class MechanicalButton @JvmOverloads constructor(
         canvas.drawCircle(cx, cy + depth * 0.55f, rMax + 2f * d, basePaint)
 
         // ② 侧壁：底部大、顶上小
-        val steps = 18
+        val steps = 24
         for (i in 0 until steps) {
             val t = i / (steps - 1f)
             val yc = cy + depth * 0.55f * (1f - t) + o

@@ -37,7 +37,7 @@ class OverlayService : Service() {
     companion object {
         private const val TAG = "ElderOverlay"
         private const val TOP_H_DP = 74
-        private const val BOTTOM_H_DP = 200
+        private const val BOTTOM_H_DP = 224
 
         @Volatile
         private var running = false
@@ -81,6 +81,9 @@ class OverlayService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastTap = 0L
 
+    /** 正在回桌面的途中：期间不允许任何逻辑把浮层再显示出来 */
+    private var returningHome = false
+
     private val ticker = object : Runnable {
         override fun run() {
             refreshClock()
@@ -97,6 +100,7 @@ class OverlayService : Service() {
         try {
             buildAll()
             running = true
+            applyVisibility(false)
         } catch (e: Throwable) {
             Log.e(TAG, "build overlay failed", e)
         }
@@ -123,6 +127,10 @@ class OverlayService : Service() {
 
     private fun applyVisibility(v: Boolean) {
         handler.post {
+            if (v && returningHome) {
+                Log.i(TAG, "visibility -> true 被忽略（正在回桌面）")
+                return@post
+            }
             val vis = if (v) View.VISIBLE else View.GONE
             try {
                 maskView?.visibility = vis
@@ -254,10 +262,10 @@ class OverlayService : Service() {
             setOnPressListener { goHome() }
         }
 
-        val btnH = dp(150)
+        val btnH = dp(172)
         row.addView(prev, LinearLayout.LayoutParams(0, btnH, 1f).apply { rightMargin = dp(12) })
         row.addView(next, LinearLayout.LayoutParams(0, btnH, 1f).apply { rightMargin = dp(12) })
-        row.addView(home, LinearLayout.LayoutParams(dp(160), btnH))
+        row.addView(home, LinearLayout.LayoutParams(dp(188), btnH))
 
         addView(
             row,
@@ -301,19 +309,33 @@ class OverlayService : Service() {
         if (!svc.swipe(next)) toast("滑动没发出去")
     }
 
-    /** 返回：先把浮层收掉，再回老人自己的桌面 */
+    /**
+     * 返回：先把浮层收掉，再回老人自己的桌面。
+     * 屏蔽层必须先消失，否则桌面上的大按钮点不动；
+     * 回到桌面后 SwipeService 的前台判断也会把它按回去，这里加双重保险 + 重试。
+     */
     private fun goHome() {
         try {
+            returningHome = true
             applyVisibility(false)
-            handler.postDelayed({
+            handler.postDelayed({ applyVisibility(false) }, 260L)
+
+            val go = Runnable {
                 try {
                     val i = Intent(this, MainActivity::class.java)
-                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    i.addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK
+                                or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    )
                     startActivity(i)
                 } catch (e: Throwable) {
                     Log.e(TAG, "goHome failed", e)
                 }
-            }, 120L)
+            }
+            handler.postDelayed(go, 60L)
+            handler.postDelayed(go, 320L)     // 第一次被系统吞掉时再推一次
+            handler.postDelayed({ returningHome = false }, 2600L)
         } catch (e: Throwable) {
             Log.e(TAG, "goHome failed", e)
         }

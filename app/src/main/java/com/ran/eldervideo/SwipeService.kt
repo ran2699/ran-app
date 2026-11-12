@@ -30,6 +30,24 @@ class SwipeService : AccessibilityService() {
         var instance: SwipeService? = null
 
         fun alive(): Boolean = instance != null
+
+        /** 当前前台包名，由无障碍事件持续更新 */
+        @Volatile
+        private var fgPkg: String = ""
+
+        fun foregroundPackage(): String = fgPkg
+
+        fun isTiktokForeground(): Boolean =
+            TIKTOK_PACKAGES.any { fgPkg.startsWith(it) }
+
+        /** 浮层只该在抖音出现，别的界面一律关掉（含老人桌面） */
+        private fun syncOverlay() {
+            try {
+                OverlayService.setVisible(isTiktokForeground())
+            } catch (e: Throwable) {
+                Log.e(TAG, "sync overlay failed", e)
+            }
+        }
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -74,6 +92,12 @@ class SwipeService : AccessibilityService() {
         if (event == null) return
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val pkg = event.packageName?.toString().orEmpty()
+            if (pkg.isNotEmpty()) {
+                fgPkg = pkg
+                // 浮层跟着抖音走：抖音在前台才出现，回到任何别的界面立刻收掉。
+                // 这样"回到老人桌面后屏蔽层还挡着按钮点不动"的问题不会再出现。
+                syncOverlay()
+            }
             if (TIKTOK_PACKAGES.any { pkg.contains(it) }) {
                 handler.postDelayed({ trySkipSplashAd() }, 1200)
             }

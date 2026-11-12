@@ -142,14 +142,19 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
             val tmin = daily.getJSONArray("temperature_2m_min")
 
             todayText.text = if (curT.isNaN()) "—" else "${curT.toInt()}°"
-            descText.text = "现在 " + codeText(curCode)
+
+            val hi0 = tmax.optDouble(0, Double.NaN)
+            val lo0 = tmin.optDouble(0, Double.NaN)
+            descText.text = "今天" + codeText(codes.optInt(0, curCode)) +
+                    "，最冷 " + plainInt(lo0) + " 度，最热 " + plainInt(hi0) + " 度。"
 
             val sb = StringBuilder()
             for (i in 0 until 3) {
                 if (i >= times.length()) break
                 val hi = tmax.optDouble(i, Double.NaN)
                 val lo = tmin.optDouble(i, Double.NaN)
-                val line = "${label(i)}   ${fmt(hi)} / ${fmt(lo)}   ${codeText(codes.optInt(i, 0))}"
+                val line = "${label(i)}　${codeText(codes.optInt(i, 0))}　" +
+                        "${plainInt(hi)}度 / ${plainInt(lo)}度"
                 when (i) {
                     0 -> rowToday.text = line
                     1 -> rowTomorrow.text = line
@@ -168,6 +173,8 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
 
     private fun fmt(v: Double): String = if (v.isNaN()) "—" else "${v.toInt()}°"
 
+    private fun plainInt(v: Double): String = if (v.isNaN()) "—" else "${Math.round(v)}"
+
     private fun label(i: Int): String = when (i) {
         0 -> "今天"
         1 -> "明天"
@@ -182,10 +189,11 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
             val c = codes.optInt(i, 0)
             when {
                 isSnow(c) -> bad.add(label(i) + "下雪")
-                isRain(c) -> bad.add(label(i) + "有雨")
+                isRain(c) -> bad.add(label(i) + "下雨")
             }
         }
-        return if (bad.isEmpty()) "未来 7 天没有雨雪" else "未来 7 天：" + bad.joinToString("，")
+        return if (bad.isEmpty()) "未来 7 天都是好天，不下雨也不下雪，放心出门。"
+        else "未来 7 天里：" + bad.joinToString("，") + "。"
     }
 
     private fun isRain(c: Int): Boolean =
@@ -193,29 +201,31 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
 
     private fun isSnow(c: Int): Boolean = c == 71 || c == 73 || c == 75 || c == 77 || c == 85 || c == 86
 
+    /** 大白话：老人一眼就懂 */
     private fun codeText(c: Int): String = when (c) {
-        0 -> "晴"
-        1 -> "晴间多云"
-        2 -> "多云"
-        3 -> "阴"
-        45, 48 -> "雾"
-        51, 53, 55 -> "毛毛雨"
-        56, 57 -> "冻毛毛雨"
-        61 -> "小雨"
-        63 -> "中雨"
-        65 -> "大雨"
-        66, 67 -> "冻雨"
-        71 -> "小雪"
-        73 -> "中雪"
-        75 -> "大雪"
-        77 -> "雪粒"
-        80 -> "小阵雨"
-        81 -> "阵雨"
-        82 -> "强阵雨"
-        85 -> "阵雪"
-        86 -> "强阵雪"
-        95 -> "雷阵雨"
-        96, 99 -> "雷阵雨伴冰雹"
-        else -> "多云"
+        0 -> "是晴天"
+        1 -> "是晴天，有点云"
+        2 -> "是多云"
+        3 -> "是阴天"
+        45, 48 -> "有雾"
+        51, 53, 55 -> "下毛毛雨"
+        56, 57 -> "下冻雨"
+        61 -> "下小雨"
+        63 -> "下中雨"
+        65 -> "下大雨"
+        66, 67 -> "下冻雨"
+        71 -> "下小雪"
+        73 -> "下中雪"
+        75 -> "下大雪"
+        77 -> "下雪粒"
+        80 -> "有点阵雨"
+        81 -> "下阵雨"
+        82 -> "下大雨"
+        85 -> "下阵雪"
+        86 -> "下大雪"
+        95 -> "打雷下雨"
+        96, 99 -> "打雷下雨，还下冰雹"
+        else -> "是多云"
     }
+
 }

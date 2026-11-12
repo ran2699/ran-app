@@ -15,6 +15,14 @@ android {
         versionName = "0.1-test"
     }
 
+    // 该分支自 main 拉出，残留了旧工程 com.ran.agent 源码（本身编译不过）。
+    // 这里把源码目录收窄，只编译本项目。
+    sourceSets {
+        getByName("main") {
+            java.setSrcDirs(listOf("src/main/java/com/ran/eldervideo"))
+        }
+    }
+
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false

@@ -23,7 +23,23 @@ android {
         }
     }
 
+    // 固定签名：GitHub Actions 每次都是全新机器，默认 debug keystore 每次都不一样，
+    // 结果就是每装一个新包都得先卸载旧包（老人的桌面设置、无障碍授权全没了）。
+    // 这里用仓库里固定的一把钥匙，以后直接覆盖安装。
+    signingConfigs {
+        create("elder") {
+            storeFile = file("../ci/signing.p12")
+            storeType = "PKCS12"
+            storePassword = "android"
+            keyAlias = "elder"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("elder")
+        }
         getByName("release") {
             isMinifyEnabled = false
         }

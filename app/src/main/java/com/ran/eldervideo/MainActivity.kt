@@ -166,6 +166,24 @@ class MainActivity : Activity() {
             }
         )
 
+        // 常驻：红球占右下角，关机键站在它左边——日历、天气页都跟着显示
+        val offBar = MechanicalButton(this).apply {
+            labelText = "关掉手机"
+            faceColor = Color.parseColor("#D3261B")
+            faceColorDark = Color.parseColor("#6E0A05")
+            labelSizeSp = 34f
+            depthDp = 18f
+            setOnPressListener { blackOut() }
+        }
+        root.addView(
+            offBar,
+            FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM or Gravity.START).apply {
+                leftMargin = dp(22)
+                rightMargin = dp(22 + 190 + 14)
+                bottomMargin = dp(88)
+            }
+        )
+
         setContentView(root)
         checkAccessibility()
         refreshClock()
@@ -206,7 +224,7 @@ class MainActivity : Activity() {
         top.addView(battery, LinearLayout.LayoutParams(dp(160), dp(80)))
         col.addView(top, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
 
-        col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(58) })
+        col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(140) })
 
         hint = TextView(this).apply {
             setTextColor(Color.parseColor("#111111"))
@@ -218,19 +236,6 @@ class MainActivity : Activity() {
         }
         col.addView(hint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
 
-        // 底行：关机键占左边，右边留出返回键的位置
-        val bottomRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val off = MechanicalButton(this).apply {
-            labelText = "关掉手机"
-            faceColor = Color.parseColor("#D3261B")
-            faceColorDark = Color.parseColor("#6E0A05")
-            labelSizeSp = 26f
-            depthDp = 16f
-            setOnPressListener { blackOut() }
-        }
-        bottomRow.addView(off, LinearLayout.LayoutParams(0, dp(120), 1f))
-        bottomRow.addView(View(this), LinearLayout.LayoutParams(dp(160), dp(120)))
-        col.addView(bottomRow, LinearLayout.LayoutParams(-1, dp(120)).apply { topMargin = dp(16) })
 
         return col
     }

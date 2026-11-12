@@ -43,6 +43,7 @@ class MainActivity : Activity() {
     private lateinit var homePage: View
     private lateinit var datePage: View
     private var weatherPage: View? = null
+    private var torchBtn: MechanicalButton? = null
     private lateinit var backBtn: View
     private lateinit var timeText: TextView
     private lateinit var dateText: TextView
@@ -79,6 +80,13 @@ class MainActivity : Activity() {
         super.onResume()
         try {
             OverlayService.setVisible(false)
+            // 稍等一会儿再解除屏蔽，防止抖音的滞后事件把浮层又弹出来
+            root.postDelayed({
+                try {
+                    OverlayService.forceHidden = false
+                } catch (t: Throwable) {
+                }
+            }, 1000L)
         } catch (t: Throwable) {
         }
         try {
@@ -160,7 +168,10 @@ class MainActivity : Activity() {
         val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         timeText = TextView(this).apply {
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 78f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 66f)
+            setSingleLine(true)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             includeFontPadding = false
             setOnClickListener { onSecretTap() }
@@ -178,7 +189,7 @@ class MainActivity : Activity() {
         top.addView(battery, LinearLayout.LayoutParams(dp(160), dp(80)))
         col.addView(top, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
 
-        col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f))
+        col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(58) })
 
         hint = TextView(this).apply {
             setTextColor(Color.parseColor("#111111"))
@@ -196,7 +207,7 @@ class MainActivity : Activity() {
             labelText = "关掉手机"
             faceColor = Color.parseColor("#D3261B")
             faceColorDark = Color.parseColor("#6E0A05")
-            labelSizeSp = 34f
+            labelSizeSp = 26f
             depthDp = 16f
             setOnPressListener { confirmOff() }
         }
@@ -228,6 +239,7 @@ class MainActivity : Activity() {
                     faceColorDark = shade(color, 0.32f)
                     labelSizeSp = 36f
                     depthDp = 14f
+                    if (idx == 4) torchBtn = this
                     setOnPressListener { onKey(idx) }
                 }
                 row.addView(b, LinearLayout.LayoutParams(0, -1, 1f).apply {
@@ -481,7 +493,12 @@ class MainActivity : Activity() {
             }
             torchOn = !torchOn
             cm.setTorchMode(id, torchOn)
-            toast(if (torchOn) "手电筒已开" else "手电筒已关")
+            torchBtn?.let { b ->
+                b.faceColor = if (torchOn) Color.parseColor("#F2B705") else Color.parseColor("#1B5FD9")
+                b.faceColorDark = if (torchOn) Color.parseColor("#7A5C00") else Color.parseColor("#0A2E63")
+                b.invalidate()
+            }
+            toast(if (torchOn) "手电筒打开啦，再点一下关掉" else "手电筒关掉了")
         } catch (t: Throwable) {
             toast("手电筒打不开")
         }

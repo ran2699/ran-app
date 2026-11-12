@@ -263,164 +263,152 @@ class MainActivity : Activity() {
     }
 
     // ---------------- 暗号与密码 ----------------
-+    /** 连续点 7 下时间，才出密码页 */
-+    private fun onSecretTap() {
-+        val now = System.currentTimeMillis()
-+        if (now - lastSecretAt > 1200L) secretTaps = 0
-+        lastSecretAt = now
-+        secretTaps++
-+        if (secretTaps >= 7) {
-+            secretTaps = 0
-+            showPinPage()
-+        }
-+    }
-+
-+    private fun savedPin(): String =
-+        getSharedPreferences("elder", MODE_PRIVATE).getString("pin", "2468") ?: "2468"
-+
-+    private fun showPinPage() {
-+        if (pinPage != null) return
-+        val entered = StringBuilder()
-+        val layer = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#F0000000")) }
-+        layer.isClickable = true
-+
-+        val col = LinearLayout(this).apply {
-+            orientation = LinearLayout.VERTICAL
-+            gravity = Gravity.CENTER
-+            setPadding(dp(26), dp(40), dp(26), dp(40))
-+        }
-+        val title = TextView(this).apply {
-+            text = "请输入密码"
-+            setTextColor(Color.WHITE)
-+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f)
-+            gravity = Gravity.CENTER
-+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-+        }
-+        val dots = TextView(this).apply {
-+            setTextColor(Color.WHITE)
-+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 54f)
-+            gravity = Gravity.CENTER
-+        }
-+        val tip = TextView(this).apply {
-+            setTextColor(Color.parseColor("#FFD54F"))
-+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
-+            gravity = Gravity.CENTER
-+        }
-+
-+        fun refresh() {
-+            dots.text = "●".repeat(entered.length) + "○".repeat((4 - entered.length).coerceAtLeast(0))
-+        }
-+        refresh()
-+
-+        fun submit() {
-+            if (entered.length < 4) return
-+            if (entered.toString() == savedPin()) {
-+                closePinPage()
-+                toast("密码对了")
-+                handler.postDelayed({ openHomeSettings() }, 320L)
-+            } else {
-+                entered.setLength(0)
-+                refresh()
-+                tip.text = "不对，再试一次"
-+            }
-+        }
-+
-+        col.addView(title)
-+        col.addView(dots, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
-+        col.addView(tip, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
-+
-+        val keypad = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-+        val rows = listOf(
-+            listOf("1", "2", "3"),
-+            listOf("4", "5", "6"),
-+            listOf("7", "8", "9"),
-+            listOf("取消", "0", "删掉")
-+        )
-+        for (r in rows) {
-+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-+            for (k in r) {
-+                val isCancel = k == "取消"
-+                val kb = MechanicalButton(this).apply {
-+                    labelText = k
-+                    labelSizeSp = if (k.length > 1) 30f else 46f
-+                    depthDp = 10f
-+                    faceColor = if (isCancel) Color.parseColor("#5A5A5A") else Color.parseColor("#1B5FD9")
-+                    faceColorDark = if (isCancel) Color.parseColor("#242424") else Color.parseColor("#0A2E63")
-+                    setOnPressListener {
-+                        when (k) {
-+                            "取消" -> closePinPage()
-+                            "删掉" -> if (entered.isNotEmpty()) {
-+                                entered.deleteCharAt(entered.length - 1)
-+                                refresh()
-+                            }
-+                            else -> {
-+                                if (entered.length < 4) {
-+                                    entered.append(k)
-+                                    refresh()
-+                                }
-+                                if (entered.length == 4) handler.postDelayed({ submit() }, 140L)
-+                            }
-+                        }
-+                    }
-+                }
-+                row.addView(kb, LinearLayout.LayoutParams(0, dp(118), 1f).apply {
-+                    rightMargin = dp(10)
-+                    topMargin = dp(10)
-+                })
-+            }
-+            keypad.addView(row)
-+        }
-+        col.addView(keypad, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
-+
-+        layer.addView(col, FrameLayout.LayoutParams(-1, -1))
-+        root.addView(layer, FrameLayout.LayoutParams(-1, -1))
-+        pinPage = layer
-+        tip.text = "10 秒后自动关闭"
-+
-+        // 10 秒没输对就自己关掉，防误触
-+        var left = 10
-+        val countdown = object : Runnable {
-+            override fun run() {
-+                if (pinPage !== layer) return
-+                left--
-+                if (left <= 0) {
-+                    closePinPage()
-+                    return
-+                }
-+                tip.text = "$left 秒后自动关闭"
-+                handler.postDelayed(this, 1000L)
-+            }
-+        }
-+        pinTimer = countdown
-+        handler.postDelayed(countdown, 1000L)
-+    }
-+
-+    private fun closePinPage() {
-+        pinTimer?.let { handler.removeCallbacks(it) }
-+        pinTimer = null
-+        pinPage?.let { v ->
-+            try {
-+                root.removeView(v)
-+            } catch (t: Throwable) {
-+            }
-+        }
-+        pinPage = null
-+    }
-+
-+    /** 密码对了才允许离开：打开系统的"默认桌面"设置页 */
-+    private fun openHomeSettings() {
-+        try {
-+            startActivity(Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-+        } catch (t: Throwable) {
-+            try {
-+                startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-+            } catch (e: Throwable) {
-+                toast("打不开设置")
-+            }
-+        }
-+    }
-+
-+    // ---------------- 动作 ----------------
+    /** 连续点 7 下时间，才出密码页 */
+    private fun onSecretTap() {
+        val now = System.currentTimeMillis()
+        if (now - lastSecretAt > 1200L) secretTaps = 0
+        lastSecretAt = now
+        secretTaps++
+        if (secretTaps >= 7) {
+            secretTaps = 0
+            showPinPage()
+        }
+    }
+    private fun savedPin(): String =
+        getSharedPreferences("elder", MODE_PRIVATE).getString("pin", "2468") ?: "2468"
+    private fun showPinPage() {
+        if (pinPage != null) return
+        val entered = StringBuilder()
+        val layer = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#F0000000")) }
+        layer.isClickable = true
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(26), dp(40), dp(26), dp(40))
+        }
+        val title = TextView(this).apply {
+            text = "请输入密码"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val dots = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 54f)
+            gravity = Gravity.CENTER
+        }
+        val tip = TextView(this).apply {
+            setTextColor(Color.parseColor("#FFD54F"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
+            gravity = Gravity.CENTER
+        }
+        fun refresh() {
+            dots.text = "●".repeat(entered.length) + "○".repeat((4 - entered.length).coerceAtLeast(0))
+        }
+        refresh()
+        fun submit() {
+            if (entered.length < 4) return
+            if (entered.toString() == savedPin()) {
+                closePinPage()
+                toast("密码对了")
+                handler.postDelayed({ openHomeSettings() }, 320L)
+            } else {
+                entered.setLength(0)
+                refresh()
+                tip.text = "不对，再试一次"
+            }
+        }
+        col.addView(title)
+        col.addView(dots, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+        col.addView(tip, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        val keypad = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val rows = listOf(
+            listOf("1", "2", "3"),
+            listOf("4", "5", "6"),
+            listOf("7", "8", "9"),
+            listOf("取消", "0", "删掉")
+        )
+        for (r in rows) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (k in r) {
+                val isCancel = k == "取消"
+                val kb = MechanicalButton(this).apply {
+                    labelText = k
+                    labelSizeSp = if (k.length > 1) 30f else 46f
+                    depthDp = 10f
+                    faceColor = if (isCancel) Color.parseColor("#5A5A5A") else Color.parseColor("#1B5FD9")
+                    faceColorDark = if (isCancel) Color.parseColor("#242424") else Color.parseColor("#0A2E63")
+                    setOnPressListener {
+                        when (k) {
+                            "取消" -> closePinPage()
+                            "删掉" -> if (entered.isNotEmpty()) {
+                                entered.deleteCharAt(entered.length - 1)
+                                refresh()
+                            }
+                            else -> {
+                                if (entered.length < 4) {
+                                    entered.append(k)
+                                    refresh()
+                                }
+                                if (entered.length == 4) handler.postDelayed({ submit() }, 140L)
+                            }
+                        }
+                    }
+                }
+                row.addView(kb, LinearLayout.LayoutParams(0, dp(118), 1f).apply {
+                    rightMargin = dp(10)
+                    topMargin = dp(10)
+                })
+            }
+            keypad.addView(row)
+        }
+        col.addView(keypad, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+        layer.addView(col, FrameLayout.LayoutParams(-1, -1))
+        root.addView(layer, FrameLayout.LayoutParams(-1, -1))
+        pinPage = layer
+        tip.text = "10 秒后自动关闭"
+        // 10 秒没输对就自己关掉，防误触
+        var left = 10
+        val countdown = object : Runnable {
+            override fun run() {
+                if (pinPage !== layer) return
+                left--
+                if (left <= 0) {
+                    closePinPage()
+                    return
+                }
+                tip.text = "$left 秒后自动关闭"
+                handler.postDelayed(this, 1000L)
+            }
+        }
+        pinTimer = countdown
+        handler.postDelayed(countdown, 1000L)
+    }
+    private fun closePinPage() {
+        pinTimer?.let { handler.removeCallbacks(it) }
+        pinTimer = null
+        pinPage?.let { v ->
+            try {
+                root.removeView(v)
+            } catch (t: Throwable) {
+            }
+        }
+        pinPage = null
+    }
+    /** 密码对了才允许离开：打开系统的"默认桌面"设置页 */
+    private fun openHomeSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (t: Throwable) {
+            try {
+                startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Throwable) {
+                toast("打不开设置")
+            }
+        }
+    }
+    // ---------------- 动作 ----------------
     private fun onKey(id: Int) {
         when (id) {
             0 -> openDouyin()

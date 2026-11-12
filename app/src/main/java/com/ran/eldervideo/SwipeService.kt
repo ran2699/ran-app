@@ -19,6 +19,13 @@ class SwipeService : AccessibilityService() {
     companion object {
         const val TAG = "ElderSwipe"
 
+        /** MainActivity 判断当前前台是否是抖音用的 */
+        val TIKTOK_PACKAGES = arrayOf(
+            "com.ss.android.ugc.aweme",
+            "com.ss.android.ugc.aweme.lite",
+            "com.ss.android.ugc.live"
+        )
+
         @Volatile
         var instance: SwipeService? = null
 
@@ -33,13 +40,18 @@ class SwipeService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
 
-        // 关键修复：动态补齐手势能力，不再依赖 XML 是否被正确解析
+        // 关键修复：动态补齐手势能力位，不依赖 XML 是否被系统正确解析。
+        // SDK 里 setCapabilities 不可直接赋值，走反射写公开字段。
         try {
             serviceInfo?.let { info ->
-                var caps = info.capabilities
-                caps = caps or AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES
-                info.capabilities = caps
-                setServiceInfo(info)
+                val field = AccessibilityServiceInfo::class.java.getField("capabilities")
+                val current = field.getInt(info)
+                val wanted = current or AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES
+                if (wanted != current) {
+                    field.setInt(info, wanted)
+                    setServiceInfo(info)
+                }
+                Log.i(TAG, "capabilities ${current} -> ${field.getInt(info)}")
             }
         } catch (e: Throwable) {
             Log.e(TAG, "set capabilities failed", e)
@@ -48,7 +60,7 @@ class SwipeService : AccessibilityService() {
         val dm = resources.displayMetrics
         screenW = dm.widthPixels
         screenH = dm.heightPixels
-        Log.i(TAG, "connected ${screenW}x${screenH} caps=${serviceInfo?.capabilities}")
+        Log.i(TAG, "connected ${screenW}x${screenH}")
 
         // 无障碍一旦可用，就把浮层拉起来
         try {
@@ -62,7 +74,7 @@ class SwipeService : AccessibilityService() {
         if (event == null) return
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val pkg = event.packageName?.toString().orEmpty()
-            if (pkg.contains("aweme")) {
+            if (TIKTOK_PACKAGES.any { pkg.contains(it) }) {
                 handler.postDelayed({ trySkipSplashAd() }, 1200)
             }
         }
@@ -155,7 +167,7 @@ class SwipeService : AccessibilityService() {
                             clickable.performAction(
                                 android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK
                             )
-                            Log.i(TAG, "clicked ad node: ${t.ifEmpty { d }}")
+                            Log.i(TAG, "clicked ad node")
                             return
                         }
                     }

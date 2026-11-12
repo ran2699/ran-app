@@ -212,48 +212,7 @@ class MainActivity : Activity() {
         return grid
     }
 
-    // 月份牌：先给阳历 + 星期 + 周数，农历下一步接数据表
-    private fun buildDatePage(): View {
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(BG)
-            setPadding(dp(30), dp(40), dp(30), dp(30))
-        }
-        val title = TextView(this).apply {
-            setTextColor(Color.parseColor("#FFD54F"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
-        }
-        val big = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 150f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            includeFontPadding = false
-        }
-        val week = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 48f)
-            gravity = Gravity.CENTER
-        }
-        val back = MechanicalButton(this).apply {
-            labelText = "返回"
-            faceColor = Color.parseColor("#3A3F46")
-            faceColorDark = Color.parseColor("#1A1D22")
-            labelSizeSp = 30f
-            depthDp = 12f
-            setOnPressListener { datePage.visibility = View.GONE }
-        }
-        val today = Date()
-        title.text = SimpleDateFormat("yyyy年M月", Locale.CHINA).format(today)
-        big.text = SimpleDateFormat("d", Locale.CHINA).format(today)
-        week.text = SimpleDateFormat("EEEE", Locale.CHINA).format(today)
-
-        col.addView(title, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
-        col.addView(big, LinearLayout.LayoutParams(-1, 0, 1f))
-        col.addView(week, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(28) })
-        col.addView(back, LinearLayout.LayoutParams(-1, dp(110)))
-        return col
-    }
+    private fun buildDatePage(): View = CalendarPage(this) { datePage.visibility = View.GONE }
 
     // ---------------- 动作 ----------------
     private fun onKey(id: Int) {

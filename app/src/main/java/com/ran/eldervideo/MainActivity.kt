@@ -164,24 +164,6 @@ class MainActivity : Activity() {
                 // 抬到系统导航栏之上，别被那三个白点压住
                 bottomMargin = dp(54)
             }
----
-                FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM or Gravity.START).apply {
-                    leftMargin = dp(22)
-                    rightMargin = dp(22 + 190 + 14)
-                    bottomMargin = dp(88)
-                }
-+++
-                FrameLayout.LayoutParams(-1, dp(128), Gravity.BOTTOM or Gravity.START).apply {
-                    leftMargin = dp(22)
-                    rightMargin = dp(22 + 176 + 14)
-                    bottomMargin = dp(80)
-                }
----
-        col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(140) })
-+++
-        // 底部两枚常驻键是绝对定位：关机键顶到 208dp、红球顶到 230dp。
-        // 网格必须留够 240dp，否则第三行会被压住（老包实测「手电筒」被关机键盖掉一半）。
-        col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(240) })
         )
 
         // 常驻：红球占右下角，关机键站在它左边——日历、天气页都跟着显示
@@ -195,10 +177,10 @@ class MainActivity : Activity() {
         }
         root.addView(
             offBar,
-            FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM or Gravity.START).apply {
+            FrameLayout.LayoutParams(-1, dp(128), Gravity.BOTTOM or Gravity.START).apply {
                 leftMargin = dp(22)
-                rightMargin = dp(22 + 190 + 14)
-                bottomMargin = dp(88)
+                rightMargin = dp(22 + 176 + 14)
+                bottomMargin = dp(80)
             }
         )
 
@@ -242,7 +224,9 @@ class MainActivity : Activity() {
         top.addView(battery, LinearLayout.LayoutParams(dp(160), dp(80)))
         col.addView(top, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
 
-        col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(140) })
+        // 底部两枚常驻键是绝对定位：红球占 176dp 高、关机键顶到 208dp。
+        // 网格必须留够 240dp，否则第三行会被压住（老包实测「手电筒」被关机键盖掉一半）。
+        col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(240) })
 
         hint = TextView(this).apply {
             setTextColor(Color.parseColor("#111111"))

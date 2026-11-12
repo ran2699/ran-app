@@ -124,7 +124,7 @@ class SwipeService : AccessibilityService() {
 
         val dm = resources.displayMetrics
         screenW = dm.widthPixels
-        screenH = dm.heightPixels
+        screenH = realHeight(dm)
         Log.i(TAG, "connected ${screenW}x${screenH}")
 
         // 无障碍一旦可用，就把浮层拉起来
@@ -176,6 +176,20 @@ class SwipeService : AccessibilityService() {
      * 用无障碍 global action 直接发 HOME。
      * 后台 startActivity 在 Android 10+ 常被系统拦掉，global action 是无障碍的特权通道，一定生效。
      */
+    /** 取真实屏高：可用高度比真机高度小一截，会让滑动坐标整体上偏 */
+    private fun realHeight(dm: android.util.DisplayMetrics): Int {
+        return try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                val b = getSystemService(android.view.WindowManager::class.java).maximumWindowMetrics.bounds
+                maxOf(b.height(), dm.heightPixels)
+            } else {
+                dm.heightPixels
+            }
+        } catch (e: Throwable) {
+            dm.heightPixels
+        }
+    }
+
     fun goHomeNow(): Boolean = try {
         val ok = performGlobalAction(GLOBAL_ACTION_HOME)
         Log.i(TAG, "globalAction HOME=$ok")
@@ -189,7 +203,7 @@ class SwipeService : AccessibilityService() {
         if (screenH <= 0) {
             val dm = resources.displayMetrics
             screenW = dm.widthPixels
-            screenH = dm.heightPixels
+            screenH = realHeight(dm)
         }
         if (screenW <= 0 || screenH <= 0) {
             onDone?.invoke()
@@ -198,8 +212,9 @@ class SwipeService : AccessibilityService() {
 
         val x = screenW / 2f
         // 起止点放在画面中部，避开顶部信息条和底部按钮区
-        val startY = if (up) screenH * 0.80f else screenH * 0.26f
-        val endY = if (up) screenH * 0.20f else screenH * 0.86f
+        // 起点终点必须落在中间视频区内：碰到顶栏/底栏就会被浮层窗口吃掉，翻不动
+        val startY = if (up) screenH * 0.62f else screenH * 0.22f
+        val endY = if (up) screenH * 0.16f else screenH * 0.68f
 
         val path = Path()
         path.moveTo(x, startY)

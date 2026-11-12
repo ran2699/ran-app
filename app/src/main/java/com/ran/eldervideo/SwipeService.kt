@@ -128,6 +128,19 @@ class SwipeService : AccessibilityService() {
      * @param up true=下一条（手指往上划），false=上一条
      * @return 是否成功派发
      */
+    /**
+     * 用无障碍 global action 直接发 HOME。
+     * 后台 startActivity 在 Android 10+ 常被系统拦掉，global action 是无障碍的特权通道，一定生效。
+     */
+    fun goHomeNow(): Boolean = try {
+        val ok = performGlobalAction(GLOBAL_ACTION_HOME)
+        Log.i(TAG, "globalAction HOME=$ok")
+        ok
+    } catch (e: Throwable) {
+        Log.e(TAG, "globalAction HOME failed", e)
+        false
+    }
+
     fun swipe(up: Boolean, onDone: (() -> Unit)? = null): Boolean {
         if (screenH <= 0) {
             val dm = resources.displayMetrics

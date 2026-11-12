@@ -9,11 +9,11 @@
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- 用于隐藏系统状态栏；需用 adb 授权一次：pm grant com.ran.agent android.permission.WRITE_SECURE_SETTINGS -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
-    <!--
-        注意：本仓库根构建脚本使用的命名空间不是 expected 的那个，
-        因此这里所有组件名一律写全限定名，避免被解析到错误包下。
-    -->
     <application
         android:name="com.ran.eldervideo.CrashApp"
         android:allowBackup="false"

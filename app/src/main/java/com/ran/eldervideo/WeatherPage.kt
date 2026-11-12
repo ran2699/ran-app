@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONObject
@@ -49,7 +50,18 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
             setPadding(dp(24), dp(46), dp(24), dp(220))
         }
         scroll.addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+        // 底部 176dp 是那条固定底栏的地盘（关掉手机 + 红球），内容滚到这里就收进去。
+        // 不放这条实心底边的话，天气内容会一直钻到按钮底下（1.0.8 实测「更新于」正好压在红球下面）。
+        val frame = FrameLayout(context)
+        frame.addView(scroll, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        val footer = android.view.View(context).apply { setBackgroundColor(Color.parseColor("#0B0B0B")) }
+        frame.addView(footer, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, dp(176), Gravity.BOTTOM
+        ))
+        addView(frame, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
         content.addView(tv(CITY, 40f, Color.WHITE, Typeface.BOLD), lp())
 

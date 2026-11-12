@@ -1,25 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    package="com.ran.agent">
+
+    <!-- 自研天气需要联网 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission
-        android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission" />
-    <!-- 用于隐藏系统状态栏；需用 adb 授权一次：pm grant com.ran.agent android.permission.WRITE_SECURE_SETTINGS -->
-    <uses-permission
-        android:name="android.permission.WRITE_SECURE_SETTINGS"
-        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 
     <application
         android:name="com.ran.eldervideo.CrashApp"
         android:allowBackup="false"
-        android:icon="@android:drawable/sym_def_app_icon"
+        android:extractNativeLibs="false"
         android:label="大视频"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        android:debuggable="true"
+        android:theme="@android:style/Theme.Material.NoActionBar">
 
         <activity
             android:name="com.ran.eldervideo.MainActivity"
@@ -43,9 +43,9 @@
 
         <service
             android:name="com.ran.eldervideo.SwipeService"
-            android:exported="true"
             android:label="大视频控制"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
@@ -54,5 +54,4 @@
                 android:resource="@xml/accessibility_config" />
         </service>
     </application>
-
 </manifest>

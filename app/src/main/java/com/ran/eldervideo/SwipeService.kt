@@ -256,16 +256,24 @@ class SwipeService : AccessibilityService() {
         }
 
         val x = screenW / 2f
-        // 起止点放在画面中部，避开顶部信息条和底部按钮区
-        // 起点终点必须落在中间视频区内：碰到顶栏/底栏就会被浮层窗口吃掉，翻不动
-        val startY = if (up) screenH * 0.62f else screenH * 0.22f
-        val endY = if (up) screenH * 0.16f else screenH * 0.68f
+        // 起点在视频下半、终点在视频上半，全程落在中间视频区里，避开顶栏和底栏
+        val startY = if (up) screenH * 0.74f else screenH * 0.26f
+        val endY = if (up) screenH * 0.26f else screenH * 0.74f
 
+        // 带一点横向弧线：1.0.6 那种"纯直线 + 300ms"的注入手势，抖音直接当噪声丢了
+        // （日志里 dispatchGesture=true、gesture completed 全齐，画面一点不动）。
+        val bend = screenW * 0.02f
+        val midY = (startY + endY) / 2f
+        val span = kotlin.math.abs(endY - startY)
         val path = Path()
         path.moveTo(x, startY)
-        path.lineTo(x, endY)
+        path.cubicTo(
+            x + bend, midY - span * 0.22f,
+            x - bend, midY + span * 0.22f,
+            x, endY
+        )
 
-        val stroke = GestureDescription.StrokeDescription(path, 0L, 300L)
+        val stroke = GestureDescription.StrokeDescription(path, 0L, 260L)
         val gesture = GestureDescription.Builder()
             .addStroke(stroke)
             .build()

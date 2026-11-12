@@ -47,7 +47,12 @@ class SwipeService : AccessibilityService() {
                     OverlayService.setVisible(false)
                     return
                 }
-                OverlayService.setVisible(isTiktokForeground())
+                val want = isTiktokForeground()
+                // 服务被系统回收过，实例没了就没人能开浮层——这里补一刀
+                if (want && !OverlayService.alive()) {
+                    instance?.let { OverlayService.start(it) }
+                }
+                OverlayService.setVisible(want)
             } catch (e: Throwable) {
                 Log.e(TAG, "sync overlay failed", e)
             }

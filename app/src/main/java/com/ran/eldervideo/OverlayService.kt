@@ -1,54 +1,74 @@
 package com.ran.eldervideo
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
-import android.util.DisplayMetrics
-import android.util.TypedValue
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+/**
+ * 双窗口浮层：
+ *  顶部——超大时间/日期/电量，不接收触摸
+ *  底部——三颗机械按键，接收触摸
+ * 中间视频区完全镂空，没有任何窗口，抖音手势照常通行。
+ */
 class OverlayService : Service() {
 
+    companion object {
+        private const val TAG = "ElderOverlay"
+
+        @Volatile
+        private var running = false
+
+        val isRunning: Boolean get() = running
+
+        fun start(ctx: Context) {
+            if (!Settings.canDrawOverlays(ctx)) {
+                Log.w(TAG, "no overlay permission")
+                return
+            }
+            try {
+                ctx.startService(Intent(ctx, OverlayService::class.java))
+            } catch (e: Throwable) {
+                Log.e(TAG, "startService failed", e)
+            }
+        }
+
+        fun stop(ctx: Context) {
+            try {
+                ctx.stopService(Intent(ctx, OverlayService::class.java))
+            } catch (e: Throwable) {}
+        }
+    }
+
     private lateinit var wm: WindowManager
-    private var overlay: View? = null
-    private var curParams: WindowManager.LayoutParams? = null
-    private var visible = false
-
-    private var timeView: TextView? = null
-    private var sideView: TextView? = null
-
+    private var topView: View? = null
+    private var bottomView: View? = null
+    private var timeText: TextView? = null
+    private var dateText: TextView? = null
     private val handler = Handler(Looper.getMainLooper())
+    private var lastTap = 0L
 
     private val ticker = object : Runnable {
         override fun run() {
-            timeView?.text = hhmm()
-            sideView?.text = dateLine()
-            handler.postDelayed(this, 30000L)
+            refreshClock()
+            handler.postDelayed(this, 20_000L)
         }
     }
 
@@ -56,334 +76,215 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        instance = this
-        wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        startForegroundInternal()
+        wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        try {
+            buildTopBar()
+            buildBottomBar()
+            running = true
+        } catch (e: Throwable) {
+            Log.e(TAG, "build overlay failed", e)
+        }
+        handler.post(ticker)
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!running) {
+            try {
+                buildTopBar()
+                buildBottomBar()
+                running = true
+            } catch (e: Throwable) {
+                Log.e(TAG, "rebuild failed", e)
+            }
+        }
+        return START_STICKY
+    }
 
     override fun onDestroy() {
-        handler.removeCallbacks(ticker)
-        hide()
-        instance = null
+        running = false
+        handler.removeCallbacksAndMessages(null)
+        topView?.let { runCatching { wm.removeView(it) } }
+        bottomView?.let { runCatching { wm.removeView(it) } }
+        topView = null
+        bottomView = null
         super.onDestroy()
     }
 
-    fun show() {
-        if (visible) return
-        if (!Settings.canDrawOverlays(this)) return
-        try {
-            val v = overlay ?: buildOverlay().also { overlay = it }
-            val p = windowParams()
-            curParams = p
-            wm.addView(v, p)
-            visible = true
-            setStatusBarHidden(true)
-            handler.removeCallbacks(ticker)
-            handler.post(ticker)
-        } catch (t: Throwable) {
-            visible = false
-        }
-    }
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
-    fun hide() {
-        if (!visible) return
-        handler.removeCallbacks(ticker)
-        try {
-            overlay?.let { wm.removeView(it) }
-        } catch (t: Throwable) {
-        }
-        visible = false
-        setStatusBarHidden(false)
-    }
+    private fun overlayType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
 
-    /**
-     * 隐藏/恢复系统状态栏。
-     * 需要 WRITE_SECURE_SETTINGS，用 adb 授权一次即可：
-     *   adb shell pm grant com.ran.agent android.permission.WRITE_SECURE_SETTINGS
-     * 没授权会抛 SecurityException，这里吞掉，界面照常工作。
-     */
-    private fun setStatusBarHidden(hidden: Boolean) {
-        try {
-            Settings.Global.putString(
-                contentResolver,
-                "policy_control",
-                if (hidden) "immersive.status=*" else ""
-            )
-        } catch (t: Throwable) {
-        }
-    }
+    // ---------------- 顶部信息条 ----------------
 
-    /** 手势注入期间临时让遮罩不接收触摸 */
-    fun setTouchable(b: Boolean) {
-        if (!visible) return
-        val v = overlay ?: return
-        val p = curParams ?: return
-        try {
-            p.flags = if (b) {
-                p.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-            } else {
-                p.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            }
-            wm.updateViewLayout(v, p)
-        } catch (t: Throwable) {
-        }
-    }
-
-    // ---------------- 界面 ----------------
-
-    private fun buildOverlay(): View {
-        val dm = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        wm.defaultDisplay.getRealMetrics(dm)
-        val W = dm.widthPixels
-        val H = dm.heightPixels
-
-        val root = FrameLayout(this)
-
-        val absorber = View(this).apply {
-            setBackgroundColor(Color.TRANSPARENT)
-            isClickable = true
-            setOnClickListener { }
-        }
-        root.addView(absorber, FrameLayout.LayoutParams(-1, -1))
-
-        // ---- 顶部：超大时间 ----
-        val topH = (H * 0.135f).toInt()
-        val topBar = LinearLayout(this).apply {
+    private fun buildTopBar() {
+        val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.BLACK)
-            setPadding((W * 0.035f).toInt(), 0, (W * 0.035f).toInt(), 0)
-            isClickable = true
-            setOnClickListener { }
+            setBackgroundColor(Color.parseColor("#000000"))
+            setPadding(dp(24), dp(14), dp(24), dp(14))
         }
 
-        timeView = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, W * 0.115f)
+        val time = TextView(this).apply {
+            color = Color.WHITE
+            textSize = 46f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             includeFontPadding = false
-            text = hhmm()
         }
-        sideView = TextView(this).apply {
-            setTextColor(Color.parseColor("#9E9E9E"))
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, W * 0.038f)
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        val info = TextView(this).apply {
+            color = Color.parseColor("#D0D0D0")
+            textSize = 20f
+            gravity = Gravity.END
             includeFontPadding = false
-            text = dateLine()
         }
-        topBar.addView(timeView, LinearLayout.LayoutParams(0, -2, 1f))
-        topBar.addView(sideView, LinearLayout.LayoutParams(-2, -2))
 
-        root.addView(topBar, FrameLayout.LayoutParams(-1, topH))
+        bar.addView(time, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        bar.addView(info, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
-        // ---- 底部黑底 ----
-        val bottomBlock = View(this).apply {
-            setBackgroundColor(Color.BLACK)
-            isClickable = true
+        timeText = time
+        dateText = info
+
+        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType(),
+            flags,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 0
         }
-        root.addView(
-            bottomBlock,
-            FrameLayout.LayoutParams(-1, (H * 0.27f).toInt()).apply {
-                topMargin = (H * 0.73f).toInt()
-            }
-        )
 
-        // ---- 右侧遮挡 ----
-        val rightBlock = View(this).apply {
-            setBackgroundColor(Color.BLACK)
-            isClickable = true
-        }
-        root.addView(
-            rightBlock,
-            FrameLayout.LayoutParams((W * 0.215f).toInt(), (H * 0.62f).toInt()).apply {
-                leftMargin = (W * 0.785f).toInt()
-                topMargin = (H * 0.245f).toInt()
-            }
-        )
-
-        // ---- 三颗按钮 ----
-        val btnW = (W * 0.275f).toInt()
-        val btnH = (W * 0.285f).toInt()
-        val btnY = (H * 0.785f).toInt()
-        val gap = (W * 0.025f).toInt()
-        val leftPad = (W * 0.035f).toInt()
-
-        val prev = squareBtn("上一个", btnW) { doSwipe(true) }
-        root.addView(prev, FrameLayout.LayoutParams(btnW, btnH).apply {
-            leftMargin = leftPad
-            topMargin = btnY
-        })
-
-        val next = squareBtn("下一个", btnW) { doSwipe(false) }
-        root.addView(next, FrameLayout.LayoutParams(btnW, btnH).apply {
-            leftMargin = leftPad + btnW + gap
-            topMargin = btnY
-        })
-
-        val home = CircleHomeButton(this)
-        home.setOnClickListener { goHome() }
-        root.addView(home, FrameLayout.LayoutParams(btnH, btnH).apply {
-            leftMargin = W - btnH - leftPad
-            topMargin = btnY
-        })
-
-        return root
+        wm.addView(bar, lp)
+        topView = bar
+        refreshClock()
     }
 
-    private fun squareBtn(label: String, w: Int, onClick: () -> Unit): TextView =
-        TextView(this).apply {
-            text = label
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, w * 0.27f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            includeFontPadding = false
-            background = GradientDrawable().apply {
-                cornerRadius = w * 0.18f
-                setColor(Color.parseColor("#0B5FC4"))
-            }
-            isClickable = true
-            setOnClickListener { onClick() }
-        }
-
-    /** 红色圆形 + 白色圆环：返回桌面 */
-    private class CircleHomeButton(ctx: Context) : View(ctx) {
-        private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-
-        init {
-            isClickable = true
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            val cx = width / 2f
-            val cy = height / 2f
-            val r = minOf(width, height) / 2f
-
-            p.style = Paint.Style.FILL
-            p.color = Color.parseColor("#D32F2F")
-            canvas.drawCircle(cx, cy, r, p)
-
-            p.style = Paint.Style.STROKE
-            p.strokeWidth = r * 0.17f
-            p.color = Color.WHITE
-            canvas.drawCircle(cx, cy, r * 0.52f, p)
+    private fun refreshClock() {
+        try {
+            val now = Date()
+            val hm = SimpleDateFormat("HH:mm", Locale.CHINA).format(now)
+            val md = SimpleDateFormat("M月d日", Locale.CHINA).format(now)
+            val week = SimpleDateFormat("EEEE", Locale.CHINA).format(now)
+            val pct = batteryPercent()
+            timeText?.text = hm
+            dateText?.text = "$md  $week\n电量 ${pct}%"
+        } catch (e: Throwable) {
+            Log.e(TAG, "refreshClock failed", e)
         }
     }
 
-    private fun doSwipe(prev: Boolean) {
-        val svc = SwipeService.instance
-        if (svc == null) {
-            Toast.makeText(this, "辅助功能没开，请回设置页开启", Toast.LENGTH_SHORT).show()
-            return
+    private fun batteryPercent(): Int {
+        return try {
+            val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+            bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        } catch (e: Throwable) {
+            -1
         }
-        if (prev) svc.prev() else svc.next()
     }
 
-    private fun goHome() {
-        val svc = SwipeService.instance
-        if (svc == null) {
-            hide()
-            return
+    // ---------------- 底部按键条 ----------------
+
+    private fun buildBottomBar() {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.parseColor("#000000"))
+            setPadding(dp(12), dp(14), dp(12), dp(26))
+            gravity = Gravity.CENTER_VERTICAL
         }
-        svc.goHome()
-    }
 
-    // ---------------- 窗口参数 ----------------
+        val prev = MechanicalButton(this).apply {
+            labelText = "上一个"
+            faceColor = Color.parseColor("#1B5FD9")
+            faceColorDark = Color.parseColor("#0E3A8C")
+            labelSizeSp = 34f
+            setOnPressListener { trigger(false) }
+        }
 
-    private fun windowParams(): WindowManager.LayoutParams {
-        val dm = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        wm.defaultDisplay.getRealMetrics(dm)
+        val next = MechanicalButton(this).apply {
+            labelText = "下一个"
+            faceColor = Color.parseColor("#1B5FD9")
+            faceColorDark = Color.parseColor("#0E3A8C")
+            labelSizeSp = 34f
+            setOnPressListener { trigger(true) }
+        }
+
+        val home = MechanicalButton(this).apply {
+            circular = true
+            faceColor = Color.parseColor("#D3261B")
+            faceColorDark = Color.parseColor("#8C1109")
+            setOnPressListener { goHome() }
+        }
+
+        val h = dp(128)
+        row.addView(prev, LinearLayout.LayoutParams(0, h, 1f).apply { rightMargin = dp(10) })
+        row.addView(next, LinearLayout.LayoutParams(0, h, 1f).apply { rightMargin = dp(10) })
+        row.addView(home, LinearLayout.LayoutParams(0, h, 1f))
 
         val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
 
-        val p = WindowManager.LayoutParams(
-            dm.widthPixels,
-            dm.heightPixels,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType(),
             flags,
             PixelFormat.TRANSLUCENT
-        )
-        p.gravity = Gravity.TOP or Gravity.START
-        p.x = 0
-        p.y = 0
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            p.layoutInDisplayCutoutMode =
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.START
+            x = 0
+            y = 0
         }
-        if (Build.VERSION.SDK_INT >= 30) {
-            try {
-                p.fitInsetsTypes = 0
-            } catch (t: Throwable) {
-            }
+
+        wm.addView(row, lp)
+        bottomView = row
+    }
+
+    // ---------------- 动作 ----------------
+
+    private fun trigger(next: Boolean) {
+        val now = System.currentTimeMillis()
+        if (now - lastTap < 450L) return   // 500ms 节流，防连点
+        lastTap = now
+
+        val svc = SwipeService.instance
+        if (svc == null) {
+            toast("无障碍服务没开，请重新打开")
+            return
         }
-        return p
+        val ok = svc.swipe(next) { }
+        if (!ok) {
+            toast("滑动没发出去")
+        }
     }
 
-    // ---------------- 时间 / 电量 ----------------
-
-    private fun hhmm(): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-
-    private fun dateLine(): String {
-        val c = Calendar.getInstance()
-        val week = arrayOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")[c.get(Calendar.DAY_OF_WEEK) - 1]
-        val m = c.get(Calendar.MONTH) + 1
-        val d = c.get(Calendar.DAY_OF_MONTH)
-        val bat = battery()
-        return "${m}月${d}日 ${week}\n电量 ${bat}%"
-    }
-
-    private fun battery(): Int = try {
-        val bm = getSystemService(BATTERY_SERVICE) as BatteryManager
-        bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-    } catch (t: Throwable) {
-        0
-    }
-
-    private fun startForegroundInternal() {
+    private fun goHome() {
         try {
-            val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val ch = NotificationChannel("overlay", "遮罩服务", NotificationManager.IMPORTANCE_MIN)
-                ch.setShowBadge(false)
-                nm.createNotificationChannel(ch)
-            }
-            val n = Notification.Builder(this, "overlay")
-                .setContentTitle("大视频")
-                .setContentText("正在为视频加遮罩")
-                .setSmallIcon(android.R.drawable.ic_menu_view)
-                .setOngoing(true)
-                .build()
-            startForeground(1001, n)
-        } catch (t: Throwable) {
+            val i = Intent(Intent.ACTION_MAIN)
+            i.addCategory(Intent.CATEGORY_HOME)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(i)
+        } catch (e: Throwable) {
+            Log.e(TAG, "goHome failed", e)
         }
     }
 
-    companion object {
-        @Volatile
-        private var instance: OverlayService? = null
-
-        fun start(ctx: Context) {
-            val i = Intent(ctx, OverlayService::class.java)
-            ctx.startForegroundService(i)
-        }
-
-        fun showOverlay() {
-            instance?.show()
-        }
-
-        fun hideOverlay() {
-            instance?.hide()
-        }
-
-        fun setTouchable(b: Boolean) {
-            instance?.setTouchable(b)
-        }
+    private fun toast(msg: String) {
+        try {
+            handler.post {
+                android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Throwable) {}
     }
 }

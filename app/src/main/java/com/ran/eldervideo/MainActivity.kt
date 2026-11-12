@@ -45,6 +45,8 @@ class MainActivity : Activity() {
     private lateinit var root: FrameLayout
     private lateinit var homePage: View
     private lateinit var datePage: View
+    /** 底栏「关掉手机」键：天气页是后加的整屏 view，会盖住它，得把它抬回最上层 */
+    private lateinit var offBtn: View
     private var weatherPage: View? = null
     private var torchBtn: MechanicalButton? = null
     private lateinit var backBtn: View
@@ -189,6 +191,7 @@ class MainActivity : Activity() {
                 bottomMargin = dp(16)
             }
         )
+        offBtn = offBar
 
         setContentView(root)
         checkAccessibility()
@@ -509,7 +512,9 @@ class MainActivity : Activity() {
             weatherPage = w
         }
         w.visibility = View.VISIBLE
+        // 天气页是后 addView 的，默认压在两枚底栏键之上（1.0.7 实测「关掉手机」被整块盖掉）
         root.bringChildToFront(backBtn)
+        root.bringChildToFront(offBtn)
     }
 
     private fun toggleTorch() {

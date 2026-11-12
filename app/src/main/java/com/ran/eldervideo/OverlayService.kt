@@ -37,7 +37,7 @@ class OverlayService : Service() {
     companion object {
         private const val TAG = "ElderOverlay"
         private const val TOP_H_DP = 86
-        private const val BOTTOM_H_DP = 320
+        private const val BOTTOM_H_DP = 268
 
         /** 回桌面期间强制不显示浮层；由 MainActivity.onResume 解除 */
         @Volatile
@@ -345,16 +345,16 @@ class OverlayService : Service() {
             labelText = "上一个"
             faceColor = Color.parseColor("#1B5FD9")
             faceColorDark = Color.parseColor("#0A2E63")
-            labelSizeSp = 46f
-            depthDp = 30f
+            labelSizeSp = 44f
+            depthDp = 26f
             setOnPressListener { trigger(false) }
         }
         val next = MechanicalButton(this).apply {
             labelText = "下一个"
             faceColor = Color.parseColor("#1B5FD9")
             faceColorDark = Color.parseColor("#0A2E63")
-            labelSizeSp = 46f
-            depthDp = 30f
+            labelSizeSp = 44f
+            depthDp = 26f
             setOnPressListener { trigger(true) }
         }
         val home = MechanicalButton(this).apply {
@@ -372,7 +372,7 @@ class OverlayService : Service() {
         col.addView(next, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
         row.addView(col, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
-        row.addView(home, LinearLayout.LayoutParams(dp(214), LinearLayout.LayoutParams.MATCH_PARENT).apply { leftMargin = dp(16) })
+        row.addView(home, LinearLayout.LayoutParams(dp(168), LinearLayout.LayoutParams.MATCH_PARENT).apply { leftMargin = dp(14) })
 
         // 高度 = 内容高度 + 系统导航栏高度，三个键整体抬到导航栏之上
         addView(

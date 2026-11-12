@@ -134,24 +134,37 @@ class OverlayService : Service() {
     private var shownState: Boolean? = null
 
     private val pendingShow = Runnable { applyVisibilityNow(true) }
+    private val pendingHide = Runnable { applyVisibilityNow(false) }
 
     /**
-     * 抖音一进来会连发好几个窗口状态事件，原来是每来一个就 GONE/VISIBLE 折腾一遍，
-     * 屏幕上就是"闪几下"。现在：要显示就等 420 毫秒稳定后再挂，且状态没变不再重设；
-     * 要隐藏（回桌面）立刻执行，一帧都不拖。
+     * 抖音启动时会连着抛好几个窗口状态事件（splash → 主界面 → 系统弹窗），
+     * 原来每来一个就 VISIBLE/GONE 折腾一遍，屏幕上就是"闪几下、有时干脆不出"。
+     * 现在的规则：
+     *   - 要显示：等 520 毫秒没有反向事件再挂，期间来了 false 就整个取消；
+     *   - 要隐藏：不在"回桌面"意图里时也等 800 毫秒，别被抖音内部的窗口抖动带跑；
+     *   - 回到桌面（forceHidden / returningHome）必须立刻隐藏，一帧都不拖。
      */
     private fun applyVisibility(v: Boolean) {
         handler.post {
-            handler.removeCallbacks(pendingShow)
             if (v) {
-                if (returningHome) {
+                handler.removeCallbacks(pendingHide)
+                if (returningHome || forceHidden) {
                     Log.i(TAG, "visibility -> true 被忽略（正在回桌面）")
                     return@post
                 }
                 if (shownState == true) return@post
-                handler.postDelayed(pendingShow, 420L)
+                handler.removeCallbacks(pendingShow)
+                handler.postDelayed(pendingShow, 520L)
             } else {
-                applyVisibilityNow(false)
+                handler.removeCallbacks(pendingShow)
+                if (forceHidden || returningHome) {
+                    handler.removeCallbacks(pendingHide)
+                    applyVisibilityNow(false)
+                } else {
+                    if (shownState != true) return@post
+                    handler.removeCallbacks(pendingHide)
+                    handler.postDelayed(pendingHide, 800L)
+                }
             }
         }
     }

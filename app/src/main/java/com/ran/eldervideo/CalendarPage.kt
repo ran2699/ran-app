@@ -75,7 +75,11 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
         // ② 超大红字：阳历日
         val bigDay = label("$dy", 190f, RED)
         bigDay.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
-        addView(bigDay, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        // 高度自适应：190sp 的字塞进 weight=1 的格子里会被裁掉上下边
+        addView(bigDay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(6)
+            bottomMargin = dp(6)
+        })
 
         // ③ 星期 + 阳历
         val weekRow = LinearLayout(context).apply {
@@ -135,5 +139,7 @@ class CalendarPage(ctx: Context, private val onBack: () -> Unit) : LinearLayout(
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }
         )
         addView(box, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        // 剩下的空白吃掉，内容整块靠上，不再挤压大数字
+        addView(android.view.View(context), LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
     }
 }

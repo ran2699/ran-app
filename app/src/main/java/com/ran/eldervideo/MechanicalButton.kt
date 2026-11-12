@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
@@ -14,10 +15,10 @@ import android.view.MotionEvent
 import android.view.View
 
 /**
- * 仿机械键盘键帽（v6）。
- * 结构自下而上：接地投影 -> 深色凹槽底座 -> 下宽上窄的柱体侧壁 -> 带渐变高光的键面。
- * 侧壁厚度固定为控件高度的 30%，所以无论按钮多大，看上去都是一块从洞里凸出来的塑料键帽。
- * 按下时键面下沉接近整个厚度，松手弹回。
+ * 仿机械键盘键帽。
+ * 结构自下而上：接地阴影 -> 等宽直筒侧壁 -> 带渐变与白描边的键面。
+ * 侧壁厚度是固定 dp（depthDp），不随控件高度放大——这样看起来才是一整块
+ * 从底座里抬起来的塑料键帽，而不是一个梯形裙边。按下时键面下沉接近整层厚度。
  */
 class MechanicalButton @JvmOverloads constructor(
     context: Context,
@@ -26,11 +27,11 @@ class MechanicalButton @JvmOverloads constructor(
 ) : View(context, attrs, defStyle) {
 
     var faceColor: Int = Color.parseColor("#1B5FD9")
-    var faceColorDark: Int = Color.parseColor("#0B2E63")
+    var faceColorDark: Int = Color.parseColor("#0A2E63")
     var labelText: String = ""
     var labelSizeSp: Float = 34f
     var circular: Boolean = false
-    var depthDp: Float = 16f
+    var depthDp: Float = 18f
 
     private val d = resources.displayMetrics.density
     private var pressed = false
@@ -39,7 +40,7 @@ class MechanicalButton @JvmOverloads constructor(
     private var action: (() -> Unit)? = null
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -47,6 +48,7 @@ class MechanicalButton @JvmOverloads constructor(
         isFakeBoldText = true
     }
     private val rect = RectF()
+    private val path = Path()
 
     fun setOnPressListener(a: () -> Unit) {
         action = a
@@ -57,13 +59,12 @@ class MechanicalButton @JvmOverloads constructor(
         invalidate()
     }
 
-    /** 改了 faceColor / depthDp 这类普通字段后叫一声，让键帽重画 */
     fun refresh() {
         invalidate()
     }
 
     private fun shade(c: Int, f: Float): Int = Color.argb(
-        Color.alpha(c),
+        255,
         (Color.red(c) * f).toInt().coerceIn(0, 255),
         (Color.green(c) * f).toInt().coerceIn(0, 255),
         (Color.blue(c) * f).toInt().coerceIn(0, 255)
@@ -117,136 +118,141 @@ class MechanicalButton @JvmOverloads constructor(
     }
 
     private fun drawRectKey(canvas: Canvas, w: Float, h: Float) {
-        val pad = 5f * d
-        val baseBottom = h - pad
-        // 侧壁厚度：控件的 30%，但不小于请求值
-        val depth = maxOf(h * 0.30f, minOf(depthDp * d, h * 0.42f))
-        val faceTop = pad + 2f * d
-        val faceBottom = baseBottom - depth
-        if (faceBottom - faceTop < 24f) return
-        val r = minOf(26f * d, (faceBottom - faceTop) * 0.24f)
-        val taper = depth * 0.42f
-        val sinkPx = depth * 0.88f * sink
+        val pad = 4f * d
+        val shadowH = 6f * d
+        // 侧壁厚度固定，不按比例放大
+        val sideH = minOf(depthDp * d, h * 0.42f)
+        val faceTop = pad
+        val faceBottom = h - pad - shadowH - sideH
+        val faceH = faceBottom - faceTop
+        if (faceH < 18f) return
+        val r = minOf(26f * d, faceH * 0.26f)
+        val sinkPx = sideH * 0.85f * sink
 
         paint.shader = null
 
-        // ① 接地投影
-        paint.color = Color.argb(165, 0, 0, 0)
-        rect.set(pad - 4f * d, baseBottom - depth * 0.55f, w - pad + 4f * d, baseBottom + 7f * d)
-        canvas.drawRoundRect(rect, r * 1.4f, r * 1.4f, paint)
+        // ① 接地阴影：贴着键帽底部的柔和暗影，宽度略大
+        paint.color = Color.argb(150, 0, 0, 0)
+        rect.set(pad - 6f * d, h - pad - shadowH, w - pad + 6f * d, h - pad + 1f * d)
+        canvas.drawRoundRect(rect, shadowH * 1.6f, shadowH * 1.6f, paint)
 
-        // ② 底座凹槽
-        paint.color = Color.parseColor("#05070D")
-        rect.set(pad - 2f * d, faceTop - 4f * d, w - pad + 2f * d, baseBottom + 2f * d)
-        canvas.drawRoundRect(rect, r + 5f * d, r + 5f * d, paint)
+        // ② 侧壁：和键面同宽的直筒，上亮下暗
+        val sideTop = faceBottom + sinkPx
+        val sideBottom = h - pad - shadowH + sinkPx
+        paint.shader = LinearGradient(
+            0f, sideTop, 0f, maxOf(sideBottom, sideTop + 1f),
+            intArrayOf(shade(faceColor, 0.72f), shade(faceColorDark, 1.15f)),
+            null, Shader.TileMode.CLAMP
+        )
+        rect.set(pad, sideTop, w - pad, sideBottom)
+        canvas.drawRoundRect(rect, r * 0.5f, r * 0.5f, paint)
+        paint.shader = null
 
-        // ③ 侧壁：自下而上逐层收窄，底部最宽最暗
-        val steps = 26
-        for (i in 0 until steps) {
-            val t = i / (steps - 1f)
-            val yBottom = baseBottom - depth * t + sinkPx * 0.15f
-            val yTop = yBottom - depth / steps - 1.5f * d
-            val inset = taper * t
-            paint.color = shade(faceColor, 0.28f + 0.42f * t)
-            rect.set(pad + inset, yTop, w - pad - inset, yBottom)
-            canvas.drawRoundRect(rect, maxOf(r * 0.8f, 7f * d), maxOf(r * 0.8f, 7f * d), paint)
-        }
-
-        // ④ 键面
+        // ③ 键面
         val fy = faceTop + sinkPx
         val fb = faceBottom + sinkPx
-        rect.set(pad + taper, fy, w - pad - taper, fb)
         paint.shader = LinearGradient(
             0f, fy, 0f, fb,
-            intArrayOf(shade(faceColor, 1.58f), faceColor, shade(faceColor, 0.58f)),
-            floatArrayOf(0f, 0.45f, 1f),
+            intArrayOf(shade(faceColor, 1.45f), faceColor, shade(faceColor, 0.70f)),
+            floatArrayOf(0f, 0.42f, 1f),
             Shader.TileMode.CLAMP
         )
+        rect.set(pad, fy, w - pad, fb)
         canvas.drawRoundRect(rect, r, r, paint)
         paint.shader = null
 
-        // ⑤ 顶面高光带
-        paint.color = Color.argb(140, 255, 255, 255)
-        rect.set(pad + taper + 9f * d, fy + 7f * d, w - pad - taper - 9f * d, fy + 16f * d)
-        canvas.drawRoundRect(rect, 7f * d, 7f * d, paint)
+        // ④ 白描边
+        stroke.strokeWidth = 2.4f * d
+        stroke.color = Color.argb(225, 255, 255, 255)
+        rect.set(pad + 1.2f * d, fy + 1.2f * d, w - pad - 1.2f * d, fb - 1.2f * d)
+        canvas.drawRoundRect(rect, r, r, stroke)
 
-        // ⑥ 键面白边（塑料件的高光边，最能让老人看出"这是按钮"）
-        strokePaint.strokeWidth = 3.2f * d
-        strokePaint.color = Color.argb(215, 255, 255, 255)
-        rect.set(pad + taper + 1.8f * d, fy + 1.8f * d, w - pad - taper - 1.8f * d, fb - 1.8f * d)
-        canvas.drawRoundRect(rect, r, r, strokePaint)
+        // ⑤ 顶部高光带
+        paint.color = Color.argb(115, 255, 255, 255)
+        rect.set(
+            pad + 12f * d, fy + 6f * d,
+            w - pad - 12f * d, fy + minOf(15f * d, faceH * 0.16f)
+        )
+        canvas.drawRoundRect(rect, 8f * d, 8f * d, paint)
 
-        // ⑦ 文字：先按请求字号试，超宽就等比缩到键面内，绝不压出边缘
-        if (labelText.isNotEmpty()) {
-            val maxTextW = (w - 2f * (pad + taper) - 20f * d).coerceAtLeast(40f)
-            var ts = labelSizeSp * d
-            textPaint.textSize = ts
-            val tw = textPaint.measureText(labelText)
-            if (tw > maxTextW) {
-                ts *= maxTextW / tw
-                textPaint.textSize = ts
-            }
-            textPaint.setShadowLayer(4f * d, 0f, 3f * d, Color.argb(215, 0, 0, 0))
-            // 用字体度量算基线，大字号时才不会顶到键面上沿
-            val fm = textPaint.fontMetrics
-            canvas.drawText(labelText, w / 2f, (fy + fb) / 2f - (fm.ascent + fm.descent) / 2f, textPaint)
-        }
+        // ⑥ 文字
+        drawLabel(canvas, w / 2f, fy + faceH / 2f, w - 2 * pad - 18f * d, faceH * 0.60f)
     }
 
     private fun drawCircleKey(canvas: Canvas, w: Float, h: Float) {
-        val pad = 5f * d
-        val depth = maxOf(h * 0.24f, minOf(depthDp * d, h * 0.34f))
-        val rMax = minOf(w, h) / 2f - pad - depth * 0.60f
-        if (rMax <= 12f) return
+        val sideH = minOf(depthDp * d, h * 0.30f)
+        val shadowH = 5f * d
+        val rMax = minOf(w / 2f, (h - sideH - shadowH - 8f * d) / 2f) - 2f * d
+        if (rMax <= 10f) return
         val cx = w / 2f
-        val cyFaceBase = h / 2f - depth * 0.45f
-        val cyBottom = cyFaceBase + depth
-        val sinkPx = depth * 0.86f * sink
+        val sinkPx = sideH * 0.85f * sink
+        val cyFace = 6f * d + rMax + sinkPx
+        val sideTop = cyFace
+        val sideBottom = cyFace + sideH
 
         paint.shader = null
 
-        // ① 接地投影
-        paint.color = Color.argb(175, 0, 0, 0)
-        canvas.drawCircle(cx, cyBottom + 3f * d, rMax + 3f * d, paint)
+        // ① 接地阴影
+        paint.color = Color.argb(160, 0, 0, 0)
+        canvas.drawOval(
+            cx - rMax - 6f * d, sideBottom - rMax * 0.25f,
+            cx + rMax + 6f * d, sideBottom + 10f * d,
+            paint
+        )
 
-        // ② 底座
-        paint.color = Color.parseColor("#05070D")
-        canvas.drawCircle(cx, cyBottom, rMax + 5f * d, paint)
+        // ② 侧壁：圆柱
+        paint.shader = LinearGradient(
+            0f, sideTop, 0f, maxOf(sideBottom, sideTop + 1f),
+            intArrayOf(shade(faceColor, 0.70f), shade(faceColorDark, 1.20f)),
+            null, Shader.TileMode.CLAMP
+        )
+        path.reset()
+        path.addRoundRect(
+            RectF(cx - rMax, sideTop, cx + rMax, sideBottom),
+            rMax, rMax, Path.Direction.CW
+        )
+        canvas.drawPath(path, paint)
+        paint.shader = null
 
-        // ③ 侧壁
-        val steps = 26
-        for (i in 0 until steps) {
-            val t = i / (steps - 1f)
-            paint.color = shade(faceColor, 0.26f + 0.44f * t)
-            canvas.drawCircle(cx, cyBottom - depth * t, rMax + 5f * d - depth * 0.12f * t, paint)
-        }
-
-        // ④ 键面
-        val cyFace = cyFaceBase + sinkPx
+        // ③ 球面
         paint.shader = LinearGradient(
             cx, cyFace - rMax, cx, cyFace + rMax,
-            intArrayOf(shade(faceColor, 1.55f), faceColor, shade(faceColor, 0.55f)),
+            intArrayOf(shade(faceColor, 1.50f), faceColor, shade(faceColor, 0.62f)),
             floatArrayOf(0f, 0.45f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawCircle(cx, cyFace, rMax, paint)
         paint.shader = null
 
-        // ⑤ 中央白色圆环
-        strokePaint.strokeWidth = rMax * 0.26f
-        strokePaint.color = Color.WHITE
-        canvas.drawCircle(cx, cyFace, rMax * 0.50f, strokePaint)
+        // ④ 中央白色粗圆环
+        stroke.strokeWidth = rMax * 0.26f
+        stroke.color = Color.WHITE
+        canvas.drawCircle(cx, cyFace, rMax * 0.48f, stroke)
 
-        // ⑥ 外沿白边
-        strokePaint.strokeWidth = 3.2f * d
-        strokePaint.color = Color.argb(215, 255, 255, 255)
-        canvas.drawCircle(cx, cyFace, rMax - 1.8f * d, strokePaint)
+        // ⑤ 外沿白边
+        stroke.strokeWidth = 3.4f * d
+        stroke.color = Color.argb(230, 255, 255, 255)
+        canvas.drawCircle(cx, cyFace, rMax - 2f * d, stroke)
 
-        // ⑦ 文字（圆键一般不写字）
-        if (labelText.isNotEmpty()) {
-            textPaint.textSize = labelSizeSp * d
-            textPaint.setShadowLayer(4f * d, 0f, 3f * d, Color.argb(215, 0, 0, 0))
-            canvas.drawText(labelText, cx, cyFace + textPaint.textSize * 0.36f, textPaint)
+        drawLabel(canvas, cx, cyFace, rMax * 1.5f, rMax * 0.8f)
+    }
+
+    private fun drawLabel(canvas: Canvas, cx: Float, cy: Float, maxW: Float, maxH: Float) {
+        if (labelText.isEmpty()) return
+        var size = labelSizeSp * d
+        textPaint.textSize = size
+        while (textPaint.measureText(labelText) > maxW && size > 9f * d) {
+            size -= 1f
+            textPaint.textSize = size
         }
+        while (size > maxH && size > 9f * d) {
+            size -= 1f
+            textPaint.textSize = size
+        }
+        val fm = textPaint.fontMetrics
+        val baseline = cy - (fm.ascent + fm.descent) / 2f
+        textPaint.setShadowLayer(4f * d, 0f, 3f * d, Color.argb(220, 0, 0, 0))
+        canvas.drawText(labelText, cx, baseline, textPaint)
+        textPaint.clearShadowLayer()
     }
 }

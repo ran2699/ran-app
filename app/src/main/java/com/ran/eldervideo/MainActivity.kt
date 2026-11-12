@@ -1,122 +1,432 @@
 package com.ran.eldervideo
 
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.accessibility.AccessibilityManager
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
+/**
+ * 老人桌面（首页）。
+ * 顶部：超大时间 + 日期 + 大电池（<40% 黄，<20% 红）
+ * 中间：两列三行立体大按键
+ * 底部：红色"关掉手机"
+ */
 class MainActivity : Activity() {
 
-    private lateinit var statusView: TextView
+    private lateinit var root: FrameLayout
+    private lateinit var homePage: View
+    private lateinit var datePage: View
+    private lateinit var timeText: TextView
+    private lateinit var dateText: TextView
+    private lateinit var battery: BatteryView
+    private lateinit var hint: TextView
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var torchOn = false
+
+    private val ticker = object : Runnable {
+        override fun run() {
+            refreshClock()
+            handler.postDelayed(this, 15_000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 整个初始化包起来：即使出错也只是显示错误页，不再闪退
         try {
             buildUi()
         } catch (t: Throwable) {
             showFatal(t)
         }
+        handler.post(ticker)
     }
 
-    private fun buildUi() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#0B0B0B"))
-            setPadding(dp(22), dp(36), dp(22), dp(24))
+    override fun onResume() {
+        super.onResume()
+        try {
+            refreshClock()
+            refreshHint()
+        } catch (t: Throwable) {
         }
+        setupImmersive()
+    }
 
-        root.addView(label("大 视 频", 30f, Color.WHITE, Gravity.CENTER))
-        root.addView(
-            label("给老人用的视频外壳 · 测试版 v0.2", 14f, Color.parseColor("#8A8A8A"), Gravity.CENTER),
-            lp(bottom = dp(24))
-        )
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) setupImmersive()
+    }
 
-        statusView = label("", 17f, Color.parseColor("#FFC107"), Gravity.START).apply {
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            setBackgroundColor(Color.parseColor("#171717"))
-        }
-        root.addView(statusView, lp(bottom = dp(18)))
+    override fun onBackPressed() {
+        // 桌面上按返回不退出，防止老人误触跑掉
+    }
 
-        val crash = readCrash()
-        if (crash.isNotEmpty()) {
-            root.addView(
-                label("上次崩溃记录（截图发我）：\n" + crash.take(900), 10f, Color.parseColor("#FF8A80"), Gravity.START)
-                    .apply {
-                        setPadding(dp(12), dp(12), dp(12), dp(12))
-                        setBackgroundColor(Color.parseColor("#1E1010"))
-                    },
-                lp(bottom = dp(16))
-            )
-        }
-
-        root.addView(
-            bigButton("① 允许盖在抖音上面", "#15569B") {
-                try {
-                    startActivity(
-                        Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:$packageName")
+    private fun setupImmersive() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.insetsController?.let {
+                    it.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                    it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = (
+                        View.SYSTEM_UI_FLAG_FULLSCREEN
+                                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                                or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                         )
-                    )
-                } catch (e: Exception) {
-                }
-            },
-            lp(-1, dp(84), bottom = dp(12))
-        )
+            }
+        } catch (t: Throwable) {
+        }
+    }
 
-        root.addView(
-            bigButton("② 开启辅助功能（选“大视频控制”）", "#15569B") {
-                try {
-                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                } catch (e: Exception) {
-                }
-            },
-            lp(-1, dp(84), bottom = dp(12))
-        )
+    // ---------------- 界面 ----------------
+    private fun buildUi() {
+        root = FrameLayout(this)
+        root.setBackgroundColor(BG)
+        homePage = buildHome()
+        datePage = buildDatePage()
+        datePage.visibility = View.GONE
+        root.addView(homePage)
+        root.addView(datePage)
+        setContentView(root)
+        refreshClock()
+    }
 
-        root.addView(
-            bigButton("③ 进入抖音", "#1B6B3A") {
-                if (!Settings.canDrawOverlays(this)) {
-                    statusView.text = "还没给遮罩权限，请先点第①步。"
-                    statusView.setTextColor(Color.parseColor("#FF7043"))
-                    return@bigButton
-                }
-                try {
-                    OverlayService.start(this)
-                } catch (t: Throwable) {
-                    statusView.text = "启动遮罩服务失败：" + (t.message ?: t.javaClass.simpleName)
-                    statusView.setTextColor(Color.parseColor("#FF7043"))
-                }
-                openTikTok()
-            },
-            lp(-1, dp(96), bottom = dp(16))
-        )
+    private fun buildHome(): View {
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(BG)
+            setPadding(dp(24), dp(30), dp(24), dp(24))
+        }
 
-        root.addView(
-            label(
-                "说明：抖音里其余区域全部被黑框盖住，点不动；老人只需要看得见底下三颗大按钮。",
-                13f, Color.parseColor("#6E6E6E"), Gravity.START
+        // 顶部：时间 / 日期 / 电池
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        timeText = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 78f)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            includeFontPadding = false
+        }
+        dateText = TextView(this).apply {
+            setTextColor(Color.parseColor("#B9C2CC"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 23f)
+            includeFontPadding = false
+        }
+        left.addView(timeText)
+        left.addView(dateText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(10) })
+        top.addView(left, LinearLayout.LayoutParams(0, -2, 1f))
+
+        battery = BatteryView(this)
+        top.addView(battery, LinearLayout.LayoutParams(dp(160), dp(80)))
+        col.addView(top, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
+
+        // 六个大按键
+        col.addView(buildGrid(), LinearLayout.LayoutParams(-1, 0, 1f))
+
+        // 缺权限提示
+        hint = TextView(this).apply {
+            setTextColor(Color.parseColor("#111111"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
+            gravity = Gravity.CENTER
+            setBackgroundColor(YELLOW)
+            setPadding(dp(14), dp(16), dp(14), dp(16))
+            setOnClickListener { openOverlaySettings() }
+        }
+        col.addView(hint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+
+        // 关掉手机
+        val off = MechanicalButton(this).apply {
+            labelText = "关掉手机"
+            faceColor = Color.parseColor("#D3261B")
+            faceColorDark = Color.parseColor("#6E0A05")
+            labelSizeSp = 36f
+            depthDp = 14f
+            setOnPressListener { confirmOff() }
+        }
+        col.addView(off, LinearLayout.LayoutParams(-1, dp(120)).apply { topMargin = dp(16) })
+
+        return col
+    }
+
+    private fun buildGrid(): View {
+        val specs = listOf(
+            "抖音" to Color.parseColor("#1B5FD9"),
+            "打电话" to Color.parseColor("#1B5FD9"),
+            "日历" to Color.parseColor("#1B5FD9"),
+            "天气" to Color.parseColor("#1B5FD9"),
+            "手电筒" to Color.parseColor("#1B5FD9"),
+            "空" to Color.parseColor("#3A3F46")
+        )
+        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        for (r in 0 until 3) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (c in 0 until 2) {
+                val idx = r * 2 + c
+                val (label, color) = specs[idx]
+                val b = MechanicalButton(this).apply {
+                    labelText = label
+                    faceColor = color
+                    faceColorDark = shade(color, 0.32f)
+                    labelSizeSp = 36f
+                    depthDp = 14f
+                    setOnPressListener { onKey(idx) }
+                }
+                row.addView(b, LinearLayout.LayoutParams(0, -1, 1f).apply {
+                    if (c == 0) rightMargin = dp(18)
+                })
+            }
+            grid.addView(row, LinearLayout.LayoutParams(-1, 0, 1f).apply {
+                if (r < 2) bottomMargin = dp(18)
+            })
+        }
+        return grid
+    }
+
+    // 月份牌：先给阳历 + 星期 + 周数，农历下一步接数据表
+    private fun buildDatePage(): View {
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(BG)
+            setPadding(dp(30), dp(40), dp(30), dp(30))
+        }
+        val title = TextView(this).apply {
+            setTextColor(Color.parseColor("#FFD54F"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
+        }
+        val big = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 150f)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+        }
+        val week = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 48f)
+            gravity = Gravity.CENTER
+        }
+        val back = MechanicalButton(this).apply {
+            labelText = "返回"
+            faceColor = Color.parseColor("#3A3F46")
+            faceColorDark = Color.parseColor("#1A1D22")
+            labelSizeSp = 30f
+            depthDp = 12f
+            setOnPressListener { datePage.visibility = View.GONE }
+        }
+        val today = Date()
+        title.text = SimpleDateFormat("yyyy年M月", Locale.CHINA).format(today)
+        big.text = SimpleDateFormat("d", Locale.CHINA).format(today)
+        week.text = SimpleDateFormat("EEEE", Locale.CHINA).format(today)
+
+        col.addView(title, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
+        col.addView(big, LinearLayout.LayoutParams(-1, 0, 1f))
+        col.addView(week, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(28) })
+        col.addView(back, LinearLayout.LayoutParams(-1, dp(110)))
+        return col
+    }
+
+    // ---------------- 动作 ----------------
+    private fun onKey(id: Int) {
+        when (id) {
+            0 -> openDouyin()
+            1 -> dial()
+            2 -> datePage.visibility = View.VISIBLE
+            3 -> openWeather()
+            4 -> toggleTorch()
+            else -> toast("这个位置先空着")
+        }
+    }
+
+    private fun openDouyin() {
+        if (!Settings.canDrawOverlays(this)) {
+            toast("先给一次显示权限")
+            openOverlaySettings()
+            return
+        }
+        try {
+            OverlayService.start(this)
+        } catch (t: Throwable) {
+            toast("控制条没起来")
+        }
+        openTikTok()
+    }
+
+    private fun openTikTok() {
+        for (p in SwipeService.TIKTOK_PACKAGES) {
+            val i = packageManager.getLaunchIntentForPackage(p) ?: continue
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                startActivity(i)
+                return
+            } catch (e: Exception) {
+            }
+        }
+        toast("这台手机没找到抖音")
+    }
+
+    private fun dial() {
+        try {
+            startActivity(Intent(Intent.ACTION_DIAL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Throwable) {
+            toast("打不开拨号")
+        }
+    }
+
+    private fun openWeather() {
+        val pkgs = listOf("com.miui.weather2", "com.android.weather", "com.coloros.weather2")
+        for (p in pkgs) {
+            val i = packageManager.getLaunchIntentForPackage(p) ?: continue
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                startActivity(i)
+                return
+            } catch (e: Exception) {
+            }
+        }
+        toast("这台手机没找到天气")
+    }
+
+    private fun toggleTorch() {
+        try {
+            val cm = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val id = cm.cameraIdList.firstOrNull { camId ->
+                cm.getCameraCharacteristics(camId).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+            } ?: run {
+                toast("这台手机没有闪光灯")
+                return
+            }
+            torchOn = !torchOn
+            cm.setTorchMode(id, torchOn)
+            toast(if (torchOn) "手电筒已开" else "手电筒已关")
+        } catch (t: Throwable) {
+            toast("手电筒打不开")
+        }
+    }
+
+    private fun openOverlaySettings() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
             )
-        )
+        } catch (e: Throwable) {
+            toast("打不开设置")
+        }
+    }
 
-        val scroll = ScrollView(this)
-        scroll.setBackgroundColor(Color.parseColor("#0B0B0B"))
-        scroll.addView(root)
-        setContentView(scroll)
+    /** "关掉手机"：普通程序没有关机权限，这里做成确认 + 黑屏锁住，长按可恢复 */
+    private fun confirmOff() {
+        val layer = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#F2000000")) }
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(30), dp(60), dp(30), dp(60))
+        }
+        val ask = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 44f)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            text = "要关掉手机吗？"
+        }
+        val yes = MechanicalButton(this).apply {
+            labelText = "关掉"
+            faceColor = Color.parseColor("#D3261B")
+            faceColorDark = Color.parseColor("#6E0A05")
+            labelSizeSp = 40f
+            setOnPressListener {
+                root.removeView(layer)
+                blackOut()
+            }
+        }
+        val no = MechanicalButton(this).apply {
+            labelText = "还用呢"
+            faceColor = Color.parseColor("#2E7D32")
+            faceColorDark = Color.parseColor("#14401A")
+            labelSizeSp = 40f
+            setOnPressListener { root.removeView(layer) }
+        }
+        col.addView(ask, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(50) })
+        col.addView(yes, LinearLayout.LayoutParams(-1, dp(150)).apply { bottomMargin = dp(24) })
+        col.addView(no, LinearLayout.LayoutParams(-1, dp(150)))
+        layer.addView(col, FrameLayout.LayoutParams(-1, -1))
+        root.addView(layer, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    private fun blackOut() {
+        val black = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        val tip = TextView(this).apply {
+            setTextColor(Color.parseColor("#3A3F46"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            gravity = Gravity.CENTER
+            text = "长按屏幕 3 秒可以打开"
+        }
+        black.addView(tip, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+            bottomMargin = dp(70)
+        })
+        black.isClickable = true
+        black.setOnLongClickListener {
+            root.removeView(black)
+            true
+        }
+        root.addView(black, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    // ---------------- 小工具 ----------------
+    private fun refreshClock() {
+        val now = Date()
+        timeText.text = SimpleDateFormat("HH:mm", Locale.CHINA).format(now)
+        val md = SimpleDateFormat("M月d日", Locale.CHINA).format(now)
+        val wk = SimpleDateFormat("EEEE", Locale.CHINA).format(now)
+        val pct = batteryPercent()
+        battery.percent = pct
+        dateText.text = "$md  $wk"
+    }
+
+    private fun refreshHint() {
+        val overlayOk = Settings.canDrawOverlays(this)
+        if (overlayOk) {
+            hint.visibility = View.GONE
+        } else {
+            hint.visibility = View.VISIBLE
+            hint.text = "点这里打开「显示在其他应用上层」，只需一次"
+        }
+    }
+
+    private fun batteryPercent(): Int = try {
+        val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+        bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+    } catch (t: Throwable) {
+        -1
     }
 
     private fun showFatal(t: Throwable) {
@@ -129,80 +439,83 @@ class MainActivity : Activity() {
             text = "启动失败。请把这一屏截图发给我：\n\n" + sw.toString()
             setPadding(40, 120, 40, 40)
         }
-        val sc = ScrollView(this)
-        sc.addView(tv)
-        setContentView(sc)
+        setContentView(tv)
     }
 
-    override fun onResume() {
-        super.onResume()
-        try {
-            refresh()
-        } catch (t: Throwable) {
-        }
-    }
-
-    private fun refresh() {
-        val overlayOk = Settings.canDrawOverlays(this)
-        val a11yOk = isA11yEnabled()
-        statusView.text = buildString {
-            append(if (overlayOk) "① 遮罩权限：已开 ✓" else "① 遮罩权限：未开 ✗")
-            append("\n")
-            append(if (a11yOk) "② 辅助功能：已开 ✓" else "② 辅助功能：未开 ✗")
-            if (overlayOk && a11yOk) append("\n可以点③了")
-        }
-        statusView.setTextColor(
-            if (overlayOk && a11yOk) Color.parseColor("#7BE495") else Color.parseColor("#FFC107")
-        )
-    }
-
-    private fun isA11yEnabled(): Boolean {
-        val am = getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
-        return am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
-            .any { it.resolveInfo.serviceInfo.packageName == packageName }
-    }
-
-    private fun readCrash(): String =
-        getSharedPreferences("crash", Context.MODE_PRIVATE).getString("last", "") ?: ""
-
-    private fun openTikTok() {
-        for (p in SwipeService.TIKTOK_PACKAGES) {
-            val i = packageManager.getLaunchIntentForPackage(p) ?: continue
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            try {
-                startActivity(i)
-                return
-            } catch (e: Exception) {
-            }
-        }
-        statusView.text = "这台手机上没找到抖音，请先装好抖音。"
-        statusView.setTextColor(Color.parseColor("#FF7043"))
+    private fun toast(msg: String) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
-    private fun label(s: String, sizeSp: Float, color: Int, gravity: Int): TextView =
-        TextView(this).apply {
-            text = s
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
-            setTextColor(color)
-            this.gravity = gravity
+    private fun shade(c: Int, f: Float): Int = Color.argb(
+        Color.alpha(c),
+        (Color.red(c) * f).toInt().coerceIn(0, 255),
+        (Color.green(c) * f).toInt().coerceIn(0, 255),
+        (Color.blue(c) * f).toInt().coerceIn(0, 255)
+    )
+
+    companion object {
+        private val BG = Color.parseColor("#0B0B0B")
+        private val YELLOW = Color.parseColor("#FFC300")
+    }
+}
+
+/** 大电池图标：<20% 红，<40% 黄，其余绿 */
+class BatteryView(ctx: Context) : View(ctx) {
+
+    var percent: Int = 100
+        set(v) {
+            field = v
+            invalidate()
         }
 
-    private fun lp(w: Int = -1, h: Int = -2, bottom: Int = 0): LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(w, h).apply { bottomMargin = bottom }
+    private val d = resources.displayMetrics.density
+    private val shellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val txtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        isFakeBoldText = true
+        textAlign = Paint.Align.CENTER
+        setShadowLayer(3f * d, 0f, 2f * d, Color.BLACK)
+    }
 
-    private fun bigButton(label: String, colorHex: String, onClick: () -> Unit): TextView =
-        TextView(this).apply {
-            text = label
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
-            background = GradientDrawable().apply {
-                cornerRadius = dp(20).toFloat()
-                setColor(Color.parseColor(colorHex))
-            }
-            isClickable = true
-            setOnClickListener { onClick() }
-        }
+    private fun levelColor(p: Int): Int = when {
+        p < 0 -> Color.parseColor("#9E9E9E")
+        p < 20 -> Color.parseColor("#FF3B30")
+        p < 40 -> Color.parseColor("#FFC300")
+        else -> Color.parseColor("#35C759")
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val c = levelColor(percent)
+        val capW = h * 0.14f
+        val body = RectF(d * 3f, d * 5f, w - capW - d * 3f, h - d * 5f)
+
+        shellPaint.strokeWidth = 4f * d
+        shellPaint.color = c
+        canvas.drawRoundRect(body, 10f * d, 10f * d, shellPaint)
+
+        fillPaint.color = c
+        canvas.drawRoundRect(
+            RectF(body.right + d, h * 0.36f, w - d, h * 0.64f),
+            4f * d, 4f * d, fillPaint
+        )
+
+        val inset = 7f * d
+        val ratio = percent.coerceIn(0, 100) / 100f
+        val inner = RectF(
+            body.left + inset, body.top + inset,
+            body.left + inset + (body.width() - inset * 2f) * ratio,
+            body.bottom - inset
+        )
+        if (inner.width() > 1f) canvas.drawRoundRect(inner, 6f * d, 6f * d, fillPaint)
+
+        txtPaint.textSize = 22f * d
+        val label = if (percent < 0) "?" else "$percent%"
+        canvas.drawText(label, body.centerX(), body.centerY() + 8f * d, txtPaint)
+    }
 }

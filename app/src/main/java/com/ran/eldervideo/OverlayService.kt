@@ -37,7 +37,11 @@ class OverlayService : Service() {
     companion object {
         private const val TAG = "ElderOverlay"
         private const val TOP_H_DP = 74
-        private const val BOTTOM_H_DP = 224
+        private const val BOTTOM_H_DP = 190
+
+        /** 回桌面期间强制不显示浮层；由 MainActivity.onResume 解除 */
+        @Volatile
+        var forceHidden: Boolean = false
 
         @Volatile
         private var running = false
@@ -242,16 +246,16 @@ class OverlayService : Service() {
             labelText = "上一个"
             faceColor = Color.parseColor("#1B5FD9")
             faceColorDark = Color.parseColor("#0A2E63")
-            labelSizeSp = 32f
-            depthDp = 16f
+            labelSizeSp = 26f
+            depthDp = 20f
             setOnPressListener { trigger(false) }
         }
         val next = MechanicalButton(this).apply {
             labelText = "下一个"
             faceColor = Color.parseColor("#1B5FD9")
             faceColorDark = Color.parseColor("#0A2E63")
-            labelSizeSp = 32f
-            depthDp = 16f
+            labelSizeSp = 26f
+            depthDp = 20f
             setOnPressListener { trigger(true) }
         }
         val home = MechanicalButton(this).apply {
@@ -262,10 +266,10 @@ class OverlayService : Service() {
             setOnPressListener { goHome() }
         }
 
-        val btnH = dp(172)
+        val btnH = dp(158)
         row.addView(prev, LinearLayout.LayoutParams(0, btnH, 1f).apply { rightMargin = dp(12) })
         row.addView(next, LinearLayout.LayoutParams(0, btnH, 1f).apply { rightMargin = dp(12) })
-        row.addView(home, LinearLayout.LayoutParams(dp(188), btnH))
+        row.addView(home, LinearLayout.LayoutParams(dp(156), btnH))
 
         addView(
             row,
@@ -317,27 +321,48 @@ class OverlayService : Service() {
     private fun goHome() {
         try {
             returningHome = true
+            // 关键：从点击到桌面真正回来这段时间，任何人都别想把浮层再打开
+            forceHidden = true
             applyVisibility(false)
-            handler.postDelayed({ applyVisibility(false) }, 260L)
+            handler.postDelayed({ applyVisibility(false) }, 200L)
 
-            val go = Runnable {
+            val launch = Runnable {
                 try {
                     val i = Intent(this, MainActivity::class.java)
                     i.addFlags(
                         Intent.FLAG_ACTIVITY_NEW_TASK
                                 or Intent.FLAG_ACTIVITY_SINGLE_TOP
                                 or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                     )
                     startActivity(i)
                 } catch (e: Throwable) {
-                    Log.e(TAG, "goHome failed", e)
+                    Log.e(TAG, "goHome launch failed", e)
                 }
             }
-            handler.postDelayed(go, 60L)
-            handler.postDelayed(go, 320L)     // 第一次被系统吞掉时再推一次
-            handler.postDelayed({ returningHome = false }, 2600L)
+            // 第二只手：直接发 HOME。老人桌面注册成默认桌面，HOME 一定会回到它。
+            val homeKey = Runnable {
+                try {
+                    val h = Intent(Intent.ACTION_MAIN)
+                    h.addCategory(Intent.CATEGORY_HOME)
+                    h.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(h)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "goHome HOME failed", e)
+                }
+            }
+            handler.post(launch)
+            handler.postDelayed(homeKey, 240L)
+            handler.postDelayed(launch, 620L)
+            handler.postDelayed(homeKey, 1100L)
+            handler.postDelayed({ returningHome = false }, 3000L)
+            // 兜底：万一桌面没 resumed，3.5 秒后解除屏蔽，避免以后永远不显示
+            handler.postDelayed({
+                if (!returningHome) forceHidden = false
+            }, 3500L)
         } catch (e: Throwable) {
             Log.e(TAG, "goHome failed", e)
+            forceHidden = false
         }
     }
 

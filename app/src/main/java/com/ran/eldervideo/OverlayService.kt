@@ -3,9 +3,6 @@ package com.ran.eldervideo
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.os.BatteryManager
@@ -21,23 +18,32 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.graphics.Color
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * 三个窗口：
- * 1. 触摸墙——全屏、透明、吃掉所有触摸（视频不许滑、图标不许点），只把最右侧点赞栏涂成实黑
- * 2. 顶部信息条——全实黑，超大时间 / 日期 / 电量，不接收触摸
- * 3. 底部按键条——全实黑高条，三颗机械按键，接收触摸
+ * 四个窗口，互不重叠，所以谁在上层都不影响观感：
+ * 1. 触摸墙——全屏透明，吃掉所有触摸（视频不许滑、图标不许点）
+ * 2. 顶端黑带——超大时间 / 日期 / 电量
+ * 3. 右侧黑条——盖住点赞评论那一列，从顶带下沿到底栏上沿
+ * 4. 底部黑带——三颗机械按键
+ *
+ * 回到我们自己的桌面时会整体隐藏（MainActivity.onResume 调 stop）。
  */
 class OverlayService : Service() {
 
     companion object {
         private const val TAG = "ElderOverlay"
+        private const val TOP_H_DP = 132
+        private const val BOTTOM_H_DP = 330
 
         @Volatile
         private var running = false
+
+        @Volatile
+        private var inst: OverlayService? = null
 
         val isRunning: Boolean get() = running
 
@@ -59,11 +65,17 @@ class OverlayService : Service() {
             } catch (e: Throwable) {
             }
         }
+
+        /** 显示/隐藏整层（不销毁服务） */
+        fun setVisible(v: Boolean) {
+            inst?.applyVisibility(v)
+        }
     }
 
     private lateinit var wm: WindowManager
     private var maskView: View? = null
     private var topView: View? = null
+    private var rightView: View? = null
     private var bottomView: View? = null
     private var timeText: TextView? = null
     private var dateText: TextView? = null
@@ -82,6 +94,7 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        inst = this
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         try {
             buildAll()
@@ -105,20 +118,36 @@ class OverlayService : Service() {
     }
 
     private fun buildAll() {
-        // 顺序即层序：先加的在下
         buildMask()
         buildTopBar()
+        buildRightBar()
         buildBottomBar()
+    }
+
+    private fun applyVisibility(v: Boolean) {
+        handler.post {
+            val vis = if (v) View.VISIBLE else View.GONE
+            try {
+                maskView?.visibility = vis
+                topView?.visibility = vis
+                rightView?.visibility = vis
+                bottomView?.visibility = vis
+            } catch (e: Throwable) {
+            }
+            Log.i(TAG, "visibility -> $v")
+        }
     }
 
     override fun onDestroy() {
         running = false
+        inst = null
         handler.removeCallbacksAndMessages(null)
-        listOf(maskView, topView, bottomView).forEach { v ->
+        listOf(maskView, topView, rightView, bottomView).forEach { v ->
             v?.let { runCatching { wm.removeView(it) } }
         }
         maskView = null
         topView = null
+        rightView = null
         bottomView = null
         super.onDestroy()
     }
@@ -137,41 +166,45 @@ class OverlayService : Service() {
             @Suppress("DEPRECATION")
             WindowManager.LayoutParams.TYPE_PHONE
 
-    // ---------------- 触摸墙 ----------------
-    private fun buildMask() {
-        val wall = TouchWallView(this)
-        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-        val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            overlayType(),
-            flags,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = 0
-        }
-        wm.addView(wall, lp)
-        maskView = wall
-        Log.i(TAG, "touch wall added")
+    private fun baseFlags(): Int = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+
+    private fun addView(v: View, w: Int, h: Int, gravity: Int, x: Int, y: Int) {
+        val lp = WindowManager.LayoutParams(w, h, overlayType(), baseFlags(), PixelFormat.TRANSLUCENT)
+        lp.gravity = gravity
+        lp.x = x
+        lp.y = y
+        wm.addView(v, lp)
     }
 
-    // ---------------- 顶部信息条 ----------------
+    // ---------------- ① 触摸墙 ----------------
+    private fun buildMask() {
+        val wall = View(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            isClickable = true
+            setOnTouchListener { _, _ -> true }
+        }
+        addView(
+            wall,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            Gravity.TOP or Gravity.START, 0, 0
+        )
+        maskView = wall
+    }
+
+    // ---------------- ② 顶部黑带 ----------------
     private fun buildTopBar() {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(Color.BLACK)
-            setPadding(dp(20), dp(8), dp(20), dp(10))
-            minimumHeight = dp(120)
+            setPadding(dp(20), 0, dp(20), 0)
         }
-
         val time = TextView(this).apply {
             setTextColor(Color.WHITE)
-            textSize = 44f
+            textSize = 46f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             includeFontPadding = false
         }
@@ -181,56 +214,38 @@ class OverlayService : Service() {
             gravity = Gravity.END
             includeFontPadding = false
         }
-
         bar.addView(time, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         bar.addView(info, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         timeText = time
         dateText = info
 
-        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-        val lp = WindowManager.LayoutParams(
+        addView(
+            bar,
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            overlayType(),
-            flags,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = statusBarHeight()
-        }
-        wm.addView(bar, lp)
+            dp(TOP_H_DP),
+            Gravity.TOP or Gravity.START, 0, statusBarHeight()
+        )
         topView = bar
         refreshClock()
     }
 
-    private fun refreshClock() {
-        try {
-            val now = Date()
-            val hm = SimpleDateFormat("HH:mm", Locale.CHINA).format(now)
-            val md = SimpleDateFormat("M月d日", Locale.CHINA).format(now)
-            val week = SimpleDateFormat("EEEE", Locale.CHINA).format(now)
-            val pct = batteryPercent()
-            timeText?.text = hm
-            dateText?.text = "$md $week\n电量 ${pct}%"
-        } catch (e: Throwable) {
-            Log.e(TAG, "refreshClock failed", e)
-        }
+    // ---------------- ③ 右侧黑条 ----------------
+    private fun buildRightBar() {
+        val dm = resources.displayMetrics
+        val screenW = dm.widthPixels
+        val screenH = dm.heightPixels
+        val topY = statusBarHeight() + dp(TOP_H_DP)
+        val barH = screenH - topY - dp(BOTTOM_H_DP)
+        var barW = (screenW * 0.30f).toInt()
+        if (barH <= 0 || barW <= 0) return
+
+        val v = View(this).apply { setBackgroundColor(Color.BLACK) }
+        addView(v, barW, barH, Gravity.TOP or Gravity.START, screenW - barW, topY)
+        rightView = v
+        Log.i(TAG, "right bar $barW x $barH at y=$topY")
     }
 
-    private fun batteryPercent(): Int {
-        return try {
-            val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-            bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        } catch (e: Throwable) {
-            -1
-        }
-    }
-
-    // ---------------- 底部按键条 ----------------
+    // ---------------- ④ 底部黑带 ----------------
     private fun buildBottomBar() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -268,22 +283,32 @@ class OverlayService : Service() {
         row.addView(next, LinearLayout.LayoutParams(0, btnH, 1f).apply { rightMargin = dp(14) })
         row.addView(home, LinearLayout.LayoutParams(0, btnH, 1f))
 
-        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-        val lp = WindowManager.LayoutParams(
+        addView(
+            row,
             WindowManager.LayoutParams.MATCH_PARENT,
-            dp(330),
-            overlayType(),
-            flags,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.START
-            x = 0
-            y = 0
-        }
-        wm.addView(row, lp)
+            dp(BOTTOM_H_DP),
+            Gravity.BOTTOM or Gravity.START, 0, 0
+        )
         bottomView = row
+    }
+
+    private fun refreshClock() {
+        try {
+            val now = Date()
+            timeText?.text = SimpleDateFormat("HH:mm", Locale.CHINA).format(now)
+            val md = SimpleDateFormat("M月d日", Locale.CHINA).format(now)
+            val week = SimpleDateFormat("EEEE", Locale.CHINA).format(now)
+            dateText?.text = "$md $week\n电量 ${batteryPercent()}%"
+        } catch (e: Throwable) {
+            Log.e(TAG, "refreshClock failed", e)
+        }
+    }
+
+    private fun batteryPercent(): Int = try {
+        val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+    } catch (e: Throwable) {
+        -1
     }
 
     // ---------------- 动作 ----------------
@@ -298,10 +323,7 @@ class OverlayService : Service() {
             return
         }
         Log.i(TAG, "trigger next=$next")
-        val ok = svc.swipe(next) { }
-        if (!ok) {
-            toast("滑动没发出去")
-        }
+        if (!svc.swipe(next)) toast("滑动没发出去")
     }
 
     private fun goHome() {
@@ -322,32 +344,5 @@ class OverlayService : Service() {
             }
         } catch (e: Throwable) {
         }
-    }
-}
-
-/**
- * 全屏触摸墙：自身可触摸，onTouchEvent 一律返回 true，把落在视频区的滑动和点击全部吃掉。
- * 只画一条实黑，盖住右侧点赞/评论/收藏/转发那一列。
- */
-class TouchWallView(ctx: Context) : View(ctx) {
-
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-
-    init {
-        isClickable = true
-        isFocusable = false
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (w <= 0f || h <= 0f) return
-        paint.color = Color.BLACK
-        // 右侧图标栏：整条涂黑
-        canvas.drawRect(w * 0.70f, 0f, w, h, paint)
-    }
-
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        return true
     }
 }

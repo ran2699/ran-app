@@ -46,7 +46,7 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
         }
         content = LinearLayout(context).apply {
             orientation = VERTICAL
-            setPadding(dp(24), dp(46), dp(24), dp(190))
+            setPadding(dp(24), dp(46), dp(24), dp(240))
         }
         scroll.addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -155,7 +155,17 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
             val tmax = daily.getJSONArray("temperature_2m_max")
             val tmin = daily.getJSONArray("temperature_2m_min")
 
-            todayText.text = if (curT.isNaN()) "—" else "现在 ${curT.toInt()}°"
+            // "现在"只是提示，不能和温度一样大：把前两个字缩到 32%
+            if (curT.isNaN()) {
+                todayText.text = "—"
+            } else {
+                val ss = android.text.SpannableString("现在 ${curT.toInt()}°")
+                ss.setSpan(
+                    android.text.style.RelativeSizeSpan(0.32f),
+                    0, 2, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                todayText.text = ss
+            }
 
             val hi0 = tmax.optDouble(0, Double.NaN)
             val lo0 = tmin.optDouble(0, Double.NaN)

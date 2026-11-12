@@ -129,6 +129,18 @@ class OverlayService : Service() {
         buildMask()
         buildTopBar()
         buildBottomBar()
+        // 建好必须先收起来。
+        // WindowManager.addView 加进去的视图默认就是 VISIBLE，而 applyVisibility(false) 里有一句
+        //「没显示过就不用隐藏」(shownState != true 直接 return)，于是浮层从服务起来那一刻就糊在
+        // 老人桌面上：顶部压住大字号时间、底部把两个底部键换成「上一个／下一个」，全屏触摸墙还
+        // 把桌面所有点击都吃掉——老人点了没反应。这就是实测看到的那一屏。
+        shownState = false
+        try {
+            maskView?.visibility = View.GONE
+            topView?.visibility = View.GONE
+            bottomView?.visibility = View.GONE
+        } catch (t: Throwable) {
+        }
     }
 
     private var shownState: Boolean? = null

@@ -32,16 +32,19 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 老人桌面（首页）。
+ * 老人桌面。
  * 顶部：超大时间 + 日期 + 大电池（<40% 黄，<20% 红）
  * 中间：两列三行立体大按键
  * 底部：红色"关掉手机"
+ * 右下角：常驻大号红色返回键（所有页面都在）
  */
 class MainActivity : Activity() {
 
     private lateinit var root: FrameLayout
     private lateinit var homePage: View
     private lateinit var datePage: View
+    private var weatherPage: View? = null
+    private lateinit var backBtn: View
     private lateinit var timeText: TextView
     private lateinit var dateText: TextView
     private lateinit var battery: BatteryView
@@ -70,7 +73,6 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         try {
-            // 回到老人桌面就把抖音那套控制条收起来
             OverlayService.setVisible(false)
         } catch (t: Throwable) {
         }
@@ -88,7 +90,7 @@ class MainActivity : Activity() {
     }
 
     override fun onBackPressed() {
-        // 桌面上按返回不退出，防止老人误触跑掉
+        // 系统返回键无效，只有屏幕右下角那颗大红键能返回
     }
 
     private fun setupImmersive() {
@@ -119,6 +121,23 @@ class MainActivity : Activity() {
         datePage.visibility = View.GONE
         root.addView(homePage)
         root.addView(datePage)
+
+        // 常驻返回键：所有页面都看得到
+        backBtn = MechanicalButton(this).apply {
+            circular = true
+            faceColor = Color.parseColor("#D3261B")
+            faceColorDark = Color.parseColor("#6E0A05")
+            depthDp = 18f
+            setOnPressListener { onBackKey() }
+        }
+        root.addView(
+            backBtn,
+            FrameLayout.LayoutParams(dp(150), dp(150), Gravity.BOTTOM or Gravity.END).apply {
+                rightMargin = dp(22)
+                bottomMargin = dp(22)
+            }
+        )
+
         setContentView(root)
         refreshClock()
     }
@@ -171,7 +190,7 @@ class MainActivity : Activity() {
             faceColor = Color.parseColor("#D3261B")
             faceColorDark = Color.parseColor("#6E0A05")
             labelSizeSp = 36f
-            depthDp = 14f
+            depthDp = 16f
             setOnPressListener { confirmOff() }
         }
         col.addView(off, LinearLayout.LayoutParams(-1, dp(120)).apply { topMargin = dp(16) })
@@ -213,7 +232,26 @@ class MainActivity : Activity() {
         return grid
     }
 
-    private fun buildDatePage(): View = CalendarPage(this) { datePage.visibility = View.GONE }
+    private fun buildDatePage(): View = CalendarPage(this) { backToHome() }
+
+    // ---------------- 导航 ----------------
+    private fun onBackKey() {
+        val w = weatherPage
+        if (w != null && w.visibility == View.VISIBLE) {
+            w.visibility = View.GONE
+            return
+        }
+        if (datePage.visibility == View.VISIBLE) {
+            datePage.visibility = View.GONE
+            return
+        }
+        // 已经在桌面上
+    }
+
+    private fun backToHome() {
+        weatherPage?.visibility = View.GONE
+        datePage.visibility = View.GONE
+    }
 
     // ---------------- 动作 ----------------
     private fun onKey(id: Int) {
@@ -264,18 +302,18 @@ class MainActivity : Activity() {
         }
     }
 
+    /** 自己写的天气页，不走第三方 App */
     private fun openWeather() {
-        val pkgs = listOf("com.miui.weather2", "com.android.weather", "com.coloros.weather2")
-        for (p in pkgs) {
-            val i = packageManager.getLaunchIntentForPackage(p) ?: continue
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            try {
-                startActivity(i)
-                return
-            } catch (e: Exception) {
-            }
+        var w = weatherPage
+        if (w == null) {
+            w = WeatherPage(this)
+            w.visibility = View.GONE
+            root.addView(w, FrameLayout.LayoutParams(-1, -1))
+            weatherPage = w
+            root.bringChildToFront(backBtn)
         }
-        toast("这台手机没找到天气")
+        w.visibility = View.VISIBLE
+        root.bringChildToFront(backBtn)
     }
 
     private fun toggleTorch() {
@@ -305,7 +343,6 @@ class MainActivity : Activity() {
         }
     }
 
-    /** "关掉手机"：普通程序没有关机权限，这里做成确认 + 黑屏锁住，长按可恢复 */
     private fun confirmOff() {
         val layer = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#F2000000")) }
         val col = LinearLayout(this).apply {

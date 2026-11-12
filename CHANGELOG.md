@@ -6,6 +6,19 @@
 
 ---
 
+## 1.0.3 — 2026-11-13
+
+### 修
+- **浮层从服务起来那一刻就一直糊在老人桌面上**（1.0.2 真机实测到的致命问题）：
+  桌面顶部被黑色时间带压住、大字号日期只露下半截，底部两个键被换成「上一个／下一个」。
+  根因是 `WindowManager.addView` 加进去的视图默认就是 VISIBLE，而 `applyVisibility(false)`
+  里写着「没显示过就不用隐藏」（`shownState != true` 直接 return），于是没人去隐藏它。
+  更麻烦的是全屏触摸墙一起吃掉了桌面所有点击——老人点哪儿都没反应。
+  现在 `buildAll()` 建完立刻把三层设成 GONE，并把 `shownState` 记为 false。
+- **`realActivePackage()` 在小米上永远拿到空串**（1.0.2 日志里 `active=` 一直是空），兜底改用
+  `rootInActiveWindow.packageName`，才认得出抖音外面盖着的那层系统弹窗。
+
+---
 ## 1.0.2 — 2026-11-13
 
 ### 修

@@ -15,18 +15,24 @@ import android.view.accessibility.AccessibilityManager
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.io.PrintWriter
+import java.io.StringWriter
 
-/**
- * 测试版引导页。三颗按钮：开遮罩权限 / 开辅助功能 / 进抖音。
- * 这个页面只是给家属配置用的，正式版会被极简桌面替代。
- */
 class MainActivity : Activity() {
 
     private lateinit var statusView: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 整个初始化包起来：即使出错也只是显示错误页，不再闪退
+        try {
+            buildUi()
+        } catch (t: Throwable) {
+            showFatal(t)
+        }
+    }
 
+    private fun buildUi() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#0B0B0B"))
@@ -35,15 +41,27 @@ class MainActivity : Activity() {
 
         root.addView(label("大 视 频", 30f, Color.WHITE, Gravity.CENTER))
         root.addView(
-            label("给老人用的视频外壳 · 测试版 v0.1", 14f, Color.parseColor("#8A8A8A"), Gravity.CENTER),
-            lp(bottom = dp(26))
+            label("给老人用的视频外壳 · 测试版 v0.2", 14f, Color.parseColor("#8A8A8A"), Gravity.CENTER),
+            lp(bottom = dp(24))
         )
 
         statusView = label("", 17f, Color.parseColor("#FFC107"), Gravity.START).apply {
             setPadding(dp(16), dp(14), dp(16), dp(14))
             setBackgroundColor(Color.parseColor("#171717"))
         }
-        root.addView(statusView, lp(bottom = dp(22)))
+        root.addView(statusView, lp(bottom = dp(18)))
+
+        val crash = readCrash()
+        if (crash.isNotEmpty()) {
+            root.addView(
+                label("上次崩溃记录（截图发我）：\n" + crash.take(900), 10f, Color.parseColor("#FF8A80"), Gravity.START)
+                    .apply {
+                        setPadding(dp(12), dp(12), dp(12), dp(12))
+                        setBackgroundColor(Color.parseColor("#1E1010"))
+                    },
+                lp(bottom = dp(16))
+            )
+        }
 
         root.addView(
             bigButton("① 允许盖在抖音上面", "#15569B") {
@@ -77,10 +95,15 @@ class MainActivity : Activity() {
                     statusView.setTextColor(Color.parseColor("#FF7043"))
                     return@bigButton
                 }
-                OverlayService.start(this)
+                try {
+                    OverlayService.start(this)
+                } catch (t: Throwable) {
+                    statusView.text = "启动遮罩服务失败：" + (t.message ?: t.javaClass.simpleName)
+                    statusView.setTextColor(Color.parseColor("#FF7043"))
+                }
                 openTikTok()
             },
-            lp(-1, dp(96), bottom = dp(18))
+            lp(-1, dp(96), bottom = dp(16))
         )
 
         root.addView(
@@ -96,9 +119,27 @@ class MainActivity : Activity() {
         setContentView(scroll)
     }
 
+    private fun showFatal(t: Throwable) {
+        val sw = StringWriter()
+        t.printStackTrace(PrintWriter(sw))
+        val tv = TextView(this).apply {
+            setBackgroundColor(Color.BLACK)
+            setTextColor(Color.parseColor("#FF5252"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            text = "启动失败。请把这一屏截图发给我：\n\n" + sw.toString()
+            setPadding(40, 120, 40, 40)
+        }
+        val sc = ScrollView(this)
+        sc.addView(tv)
+        setContentView(sc)
+    }
+
     override fun onResume() {
         super.onResume()
-        refresh()
+        try {
+            refresh()
+        } catch (t: Throwable) {
+        }
     }
 
     private fun refresh() {
@@ -120,6 +161,9 @@ class MainActivity : Activity() {
         return am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
             .any { it.resolveInfo.serviceInfo.packageName == packageName }
     }
+
+    private fun readCrash(): String =
+        getSharedPreferences("crash", Context.MODE_PRIVATE).getString("last", "") ?: ""
 
     private fun openTikTok() {
         for (p in SwipeService.TIKTOK_PACKAGES) {
@@ -143,7 +187,6 @@ class MainActivity : Activity() {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
             setTextColor(color)
             this.gravity = gravity
-            includeFontPadding = false
         }
 
     private fun lp(w: Int = -1, h: Int = -2, bottom: Int = 0): LinearLayout.LayoutParams =

@@ -6,6 +6,16 @@
 
 ---
 
+## 1.0.4 — 2026-11-13
+
+### 修
+- **无障碍明明开着，桌面红条还是不消**（1.0.2 的修法在真机上没奏效）：
+  只读 `Settings.Secure` 仍然拿不到准信，`AccessibilityManager.getEnabledAccessibilityServiceList`
+  里 `resolveInfo` 又常为 null。现在改成三路取并集——服务实例是否存活（`SwipeService.alive()`）、
+  `Settings.Secure` 名单里有没有本包、`AccessibilityManager` 用 `serviceInfo.id`（形如 `包名/.类名`）匹配，
+  任一成立就算开；同时打日志 `a11y alive=… sec=… mgr=…`，下次一看日志就知道哪一路失灵。
+
+---
 ## 1.0.3 — 2026-11-13
 
 ### 修

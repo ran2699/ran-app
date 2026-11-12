@@ -94,6 +94,11 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         checkAccessibility()
+        // 无障碍服务由系统异步绑定：页面刚起来那一两秒 instance 还是 null，一次性判断会把
+        // 红条钉在桌面上（实测红条一直盖着「抖音」键，老人点不到）。这里补几次重查，连上就撤。
+        handler.postDelayed({ checkAccessibility() }, 1500L)
+        handler.postDelayed({ checkAccessibility() }, 4000L)
+        handler.postDelayed({ checkAccessibility() }, 8000L)
         try {
             OverlayService.setVisible(false)
             // 稍等一会儿再解除屏蔽，防止抖音的滞后事件把浮层又弹出来
@@ -705,9 +710,9 @@ class MainActivity : Activity() {
             text = "抖音滑动没打开 · 点这里打开"
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#C62828"))
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22f)
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20f)
             gravity = Gravity.CENTER
-            setPadding(dp(10), dp(10), dp(10), dp(10))
+            setPadding(dp(10), dp(6), dp(10), dp(6))
             setOnClickListener {
                 runCatching {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -720,7 +725,7 @@ class MainActivity : Activity() {
             // 放顶部、不放到下方：原来压在两枚底部键和第三行键上，
             // 无障碍没开时正好把「手电筒／空」盖死，老人根本点不到。
             FrameLayout.LayoutParams(-1, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-                topMargin = dp(200)
+                topMargin = dp(196)
                 leftMargin = dp(16)
                 rightMargin = dp(16)
             }

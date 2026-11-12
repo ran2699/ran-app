@@ -256,24 +256,26 @@ class SwipeService : AccessibilityService() {
         }
 
         val x = screenW / 2f
-        // 起点在视频下半、终点在视频上半，全程落在中间视频区里，避开顶栏和底栏
-        val startY = if (up) screenH * 0.74f else screenH * 0.26f
-        val endY = if (up) screenH * 0.26f else screenH * 0.74f
+        // 起点和终点都落在中间视频区：0.80 ↔ 0.20，避开顶栏和底栏
+        val startY = if (up) screenH * 0.80f else screenH * 0.20f
+        val kneeY = if (up) screenH * 0.56f else screenH * 0.44f
+        val endY = if (up) screenH * 0.20f else screenH * 0.80f
 
-        // 带一点横向弧线：1.0.6 那种"纯直线 + 300ms"的注入手势，抖音直接当噪声丢了
-        // （日志里 dispatchGesture=true、gesture completed 全齐，画面一点不动）。
-        val bend = screenW * 0.02f
-        val midY = (startY + endY) / 2f
-        val span = kotlin.math.abs(endY - startY)
-        val path = Path()
-        path.moveTo(x, startY)
-        path.cubicTo(
-            x + bend, midY - span * 0.22f,
-            x - bend, midY + span * 0.22f,
-            x, endY
-        )
-
-        val stroke = GestureDescription.StrokeDescription(path, 0L, 260L)
+        // 两段式：前半段慢、后半段快。
+        // 抖音的上下翻页看的是"手指抬起那一瞬的速度"（ViewPager2 的 fling 判定），
+        // 匀速划过去的注入手势它不认——1.0.6/1.0.9 实测都是 dispatchGesture=true、
+        // gesture completed 齐全，画面一动不动。末端速度拉到 7000px/s 才翻得动。
+        val bend = screenW * 0.015f
+        val path1 = Path().apply {
+            moveTo(x, startY)
+            cubicTo(x + bend, startY - (startY - kneeY) * 0.5f, x - bend, kneeY + (startY - kneeY) * 0.2f, x, kneeY)
+        }
+        val path2 = Path().apply {
+            moveTo(x, kneeY)
+            lineTo(x, endY)
+        }
+        val s1 = GestureDescription.StrokeDescription(path1, 0L, 150L)
+        val stroke = s1.continueStroke(path2, 0L, 120L, false)
         val gesture = GestureDescription.Builder()
             .addStroke(stroke)
             .build()

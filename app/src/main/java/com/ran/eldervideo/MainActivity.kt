@@ -660,6 +660,21 @@ class MainActivity : Activity() {
     /** 无障碍（滑动开关）是否已打开——关掉它，抖音里的上一个/下一个就按不动 */
     private fun a11yEnabled(): Boolean {
         return try {
+            // 先读系统表：这是系统真正在用的那份名单，最准。
+            // 之前只问 AccessibilityManager，小米上它常常返回空列表，
+            // 结果服务明明开着，桌面底部还一直挂着"没打开"的红条。
+            val enabled = Settings.Secure.getInt(
+                contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0
+            ) == 1
+            val list = Settings.Secure.getString(
+                contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ).orEmpty()
+            val mine = list.split(':').any {
+                val s = it.trim()
+                s.startsWith("$packageName/") || s.startsWith("$packageName.")
+            }
+            if (enabled && mine) return true
+            // 兜底：少数机型不写这张表，退回问系统服务
             val mgr = getSystemService(AccessibilityManager::class.java)
             mgr?.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
                 ?.any { it.resolveInfo?.serviceInfo?.packageName == packageName } == true
@@ -679,9 +694,9 @@ class MainActivity : Activity() {
             text = "抖音滑动没打开 · 点这里打开"
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#C62828"))
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28f)
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22f)
             gravity = Gravity.CENTER
-            setPadding(dp(10), dp(16), dp(10), dp(16))
+            setPadding(dp(10), dp(10), dp(10), dp(10))
             setOnClickListener {
                 runCatching {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -691,8 +706,10 @@ class MainActivity : Activity() {
         }
         root.addView(
             bar,
-            FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
-                bottomMargin = dp(224)
+            // 放顶部、不放到下方：原来压在两枚底部键和第三行键上，
+            // 无障碍没开时正好把「手电筒／空」盖死，老人根本点不到。
+            FrameLayout.LayoutParams(-1, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+                topMargin = dp(200)
                 leftMargin = dp(16)
                 rightMargin = dp(16)
             }

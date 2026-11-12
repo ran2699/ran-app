@@ -214,7 +214,7 @@ class MainActivity : Activity() {
             faceColorDark = Color.parseColor("#6E0A05")
             labelSizeSp = 26f
             depthDp = 16f
-            setOnPressListener { confirmOff() }
+            setOnPressListener { blackOut() }
         }
         bottomRow.addView(off, LinearLayout.LayoutParams(0, dp(120), 1f))
         bottomRow.addView(View(this), LinearLayout.LayoutParams(dp(160), dp(120)))
@@ -519,61 +519,80 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun confirmOff() {
-        val layer = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#F2000000")) }
+    private fun blackOut() {
+        if (aodView != null) return
+        val black = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            isClickable = true
+        }
+
+        aodClock = TextView(this).apply {
+            setTextColor(Color.parseColor("#4A5058"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 132f)
+            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+        }
+        aodDate = TextView(this).apply {
+            setTextColor(Color.parseColor("#39404A"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 36f)
+            gravity = Gravity.CENTER
+        }
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(30), dp(60), dp(30), dp(60))
         }
-        val ask = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 44f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            text = "要关掉手机吗？"
+        col.addView(aodClock, LinearLayout.LayoutParams(-1, -2))
+        col.addView(aodDate, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(18) })
+        black.addView(col, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
+
+        val wake = MechanicalButton(this).apply {
+            labelText = "打开手机"
+            faceColor = Color.parseColor("#2E6B33")
+            faceColorDark = Color.parseColor("#0E2A12")
+            labelSizeSp = 46f
+            depthDp = 18f
+            setOnPressListener { wakeUp() }
         }
-        val yes = MechanicalButton(this).apply {
-            labelText = "关掉"
-            faceColor = Color.parseColor("#D3261B")
-            faceColorDark = Color.parseColor("#6E0A05")
-            labelSizeSp = 40f
-            setOnPressListener {
-                root.removeView(layer)
-                blackOut()
-            }
+        black.addView(wake, FrameLayout.LayoutParams(-1, dp(160), Gravity.BOTTOM).apply {
+            leftMargin = dp(28)
+            rightMargin = dp(28)
+            bottomMargin = dp(90)
+        })
+
+        aodView = black
+        root.addView(black, FrameLayout.LayoutParams(-1, -1))
+        try {
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } catch (t: Throwable) {
         }
-        val no = MechanicalButton(this).apply {
-            labelText = "还用呢"
-            faceColor = Color.parseColor("#2E7D32")
-            faceColorDark = Color.parseColor("#14401A")
-            labelSizeSp = 40f
-            setOnPressListener { root.removeView(layer) }
-        }
-        col.addView(ask, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(50) })
-        col.addView(yes, LinearLayout.LayoutParams(-1, dp(150)).apply { bottomMargin = dp(24) })
-        col.addView(no, LinearLayout.LayoutParams(-1, dp(150)))
-        layer.addView(col, FrameLayout.LayoutParams(-1, -1))
-        root.addView(layer, FrameLayout.LayoutParams(-1, -1))
+        paintAod()
+        handler.post(aodTicker)
     }
 
-    private fun blackOut() {
-        val black = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        val tip = TextView(this).apply {
-            setTextColor(Color.parseColor("#3A3F46"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-            gravity = Gravity.CENTER
-            text = "长按屏幕 3 秒可以打开"
+    private fun paintAod() {
+        val c = aodClock ?: return
+        val now = Date()
+        c.text = SimpleDateFormat("HH:mm", Locale.CHINA).format(now)
+        aodDate?.text = SimpleDateFormat("M月d日 EEEE", Locale.CHINA).format(now)
+    }
+
+    private fun wakeUp() {
+        handler.removeCallbacks(aodTicker)
+        aodView?.let {
+            try {
+                root.removeView(it)
+            } catch (t: Throwable) {
+            }
         }
-        black.addView(tip, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
-            bottomMargin = dp(70)
-        })
-        black.isClickable = true
-        black.setOnLongClickListener {
-            root.removeView(black)
-            true
+        aodView = null
+        aodClock = null
+        aodDate = null
+        try {
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } catch (t: Throwable) {
         }
-        root.addView(black, FrameLayout.LayoutParams(-1, -1))
+        refreshClock()
     }
 
     // ---------------- 小工具 ----------------

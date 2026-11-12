@@ -75,6 +75,13 @@ class SwipeService : AccessibilityService() {
                 }
                 var want = isTiktokForeground()
                 val actual = realActivePackage()
+                // 自家桌面在前台（抖音可能在后台继续播着直播），浮层必须收掉，否则会糊在桌面上
+                val self = instance?.packageName ?: "com.ran.agent"
+                if (fgPkg == self || actual == self) {
+                    Log.i(TAG, "sync overlay 自家桌面在前台 fg=$fgPkg active=$actual，强制隐藏")
+                    OverlayService.setVisible(false)
+                    return
+                }
                 if (!want && actual.isNotEmpty() && TIKTOK_PACKAGES.any { actual.startsWith(it) }) {
                     // 事件里的包名被系统弹窗带偏了，以真实活动窗口为准
                     want = true

@@ -78,8 +78,8 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
         })
 
         // 今天的信息在上面 descText 里已经有了，这里只列明天/后天，避免"今天"写两遍
-        rowTomorrow = tv("明天", 30f, Color.WHITE, Typeface.BOLD)
-        rowAfter = tv("后天", 30f, Color.WHITE, Typeface.BOLD)
+        rowTomorrow = tv("明天", 28f, Color.WHITE, Typeface.BOLD)
+        rowAfter = tv("后天", 28f, Color.WHITE, Typeface.BOLD)
         content.addView(rowTomorrow, lp(top = 6))
         content.addView(rowAfter, lp(top = 10))
 
@@ -205,7 +205,7 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
                 val hi = tmax.optDouble(i, Double.NaN)
                 val lo = tmin.optDouble(i, Double.NaN)
                 val line = "${label(i)}　${codeText(codes.optInt(i, 0))}　" +
-                        "最高 ${plainInt(hi)} 度，最低 ${plainInt(lo)} 度"
+                        "${plainInt(lo)}～${plainInt(hi)} 度"
                 when (i) {
                     1 -> rowTomorrow.text = line
                     2 -> rowAfter.text = line

@@ -132,6 +132,18 @@ class CallActivity : Activity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         try {
+            // Activity 是 singleTop，第二屏会被复用：预览参数必须重读一遍，
+            // 否则切到「接通」「没接通」还停在上一次的画面。
+            if (intent?.getBooleanExtra("preview", false) == true) {
+                previewName = intent.getStringExtra("preview_name") ?: previewName
+                previewNumber = intent.getStringExtra("preview_number") ?: previewNumber
+                previewState = intent.getStringExtra("preview_state") ?: previewState
+                missedLayer.visibility = View.GONE
+                col.visibility = View.VISIBLE
+                endedShown = false
+                handler.removeCallbacks(ticker)
+                handler.post(ticker)
+            }
             render()
         } catch (t: Throwable) {
         }
@@ -202,7 +214,7 @@ class CallActivity : Activity() {
         hintView = TextView(this).apply {
             text = ""
             setTextColor(Color.parseColor("#7BD88F"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 32f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
             gravity = Gravity.CENTER
             maxLines = 2
         }

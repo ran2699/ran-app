@@ -73,6 +73,16 @@ class MainActivity : Activity() {
     private var aodView: FrameLayout? = null
     private var aodClock: TextView? = null
     private var aodDate: TextView? = null
+    private var aodWakeBtn: MechanicalButton? = null
+    // 1.0.34：充电显示并进黑屏页——竖向大电池 + 文字，充电时时间不显示
+    private var aodClockCol: LinearLayout? = null
+    private var aodChargeCol: LinearLayout? = null
+    private var aodBattery: ChargeBatteryView? = null
+    private var aodChargeTitle: TextView? = null
+    private var aodChargeSub: TextView? = null
+    private var aodChargingShown = false
+    // 剩余时间自估：记最近 16 分钟的 (时间,电量) 采样
+    private val chargeSamples = ArrayList<Pair<Long, Int>>()
     private val aodTicker = object : Runnable {
         override fun run() {
             paintAod()
@@ -83,7 +93,7 @@ class MainActivity : Activity() {
     private val ticker = object : Runnable {
         override fun run() {
             refreshClock()
-            handler.postDelayed(this, 15_000L)
+            handler.postDelayed(this, 5_000L)
         }
     }
 
@@ -106,13 +116,16 @@ class MainActivity : Activity() {
             }
             val r = object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: android.content.Context?, i: Intent?) {
-                    if (i?.action == Intent.ACTION_POWER_CONNECTED) {
-                        try {
-                            startActivity(
-                                Intent(this@MainActivity, ChargeActivity::class.java)
-                                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                            )
-                        } catch (t: Throwable) {
+                    when (i?.action) {
+                        Intent.ACTION_POWER_CONNECTED -> {
+                            // 插电：自动进黑屏页（充电锁屏形态），点一下回桌面
+                            battery.charging = true
+                            if (aodView == null) blackOut() else applyAodMode()
+                        }
+                        Intent.ACTION_POWER_DISCONNECTED -> {
+                            // 上一版这里没分支：拔线事件收到就扔掉，充电状态没人清
+                            battery.charging = false
+                            applyAodMode()
                         }
                     }
                 }
@@ -124,6 +137,18 @@ class MainActivity : Activity() {
     }
 
     private var chargeReceiver: android.content.BroadcastReceiver? = null
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        try {
+            if (intent?.getBooleanExtra("show_charge", false) == true &&
+                isChargingNow() && aodView == null
+            ) {
+                blackOut()
+            }
+        } catch (t: Throwable) {
+        }
+    }
 
     override fun onDestroy() {
         try {
@@ -186,6 +211,7 @@ class MainActivity : Activity() {
         try {
             refreshClock()
             refreshHint()
+            if (aodView != null) applyAodMode()
         } catch (t: Throwable) {
         }
         setupImmersive()
@@ -625,6 +651,8 @@ class MainActivity : Activity() {
         val black = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             isClickable = true
+            // 充电形态下点屏幕任意处即回桌面（老人要的就是这个）
+            setOnClickListener { if (aodChargingShown) wakeUp() }
         }
 
         aodClock = TextView(this).apply {
@@ -646,6 +674,41 @@ class MainActivity : Activity() {
         col.addView(aodClock, LinearLayout.LayoutParams(-1, -2))
         col.addView(aodDate, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(18) })
         black.addView(col, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
+        aodClockCol = col
+
+        // —— 充电形态：竖向大电池 + 文字（1.0.34，按用户要求并进黑屏页）——
+        aodBattery = ChargeBatteryView(this)
+        aodChargeTitle = TextView(this).apply {
+            text = "正在充电中…"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 44f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+        }
+        aodChargeSub = TextView(this).apply {
+            text = "正在测算时间…"
+            setTextColor(Color.parseColor("#FFD54F"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 36f)
+            gravity = Gravity.CENTER
+        }
+        val ccol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+        }
+        ccol.addView(aodBattery, LinearLayout.LayoutParams(dp(210), dp(360)).apply { bottomMargin = dp(30) })
+        ccol.addView(aodChargeTitle, LinearLayout.LayoutParams(-1, -2))
+        ccol.addView(aodChargeSub, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        ccol.addView(
+            TextView(this).apply {
+                text = "点一下屏幕，就能用手机"
+                setTextColor(Color.parseColor("#5A626C"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
+                gravity = Gravity.CENTER
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(26) }
+        )
+        black.addView(ccol, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
+        aodChargeCol = ccol
 
         val wake = MechanicalButton(this).apply {
             labelText = "打开手机"
@@ -660,6 +723,7 @@ class MainActivity : Activity() {
             rightMargin = dp(28)
             bottomMargin = dp(90)
         })
+        aodWakeBtn = wake
 
         aodView = black
         root.addView(black, FrameLayout.LayoutParams(-1, -1))
@@ -668,7 +732,43 @@ class MainActivity : Activity() {
         } catch (t: Throwable) {
         }
         paintAod()
+        applyAodMode()
         handler.post(aodTicker)
+    }
+
+    /** 黑屏页双形态：充电=竖电池+文字（时间不显示）；不充电=原来的时间+绿键 */
+    private fun applyAodMode() {
+        val v = aodView ?: return
+        val charging = try { isChargingNow() } catch (t: Throwable) { false }
+        aodChargingShown = charging
+        val vis = if (charging) View.GONE else View.VISIBLE
+        aodClockCol?.visibility = vis
+        aodWakeBtn?.visibility = vis
+        aodChargeCol?.visibility = if (charging) View.VISIBLE else View.GONE
+        if (charging) {
+            val p = batteryPercent()
+            aodBattery?.let { it.percent = p; it.invalidate() }
+            aodChargeTitle?.text = if (p >= 100) "已经充满了" else "正在充电中…"
+            aodChargeSub?.text = if (p >= 100) "可以拔下来用了" else "还有 ${estimateChargeMinutes(p)} 分钟充满"
+        }
+    }
+
+    /** 剩余时间自估：16 分钟窗口里最早的采样和现在比，算涨电速度 */
+    private fun estimateChargeMinutes(p: Int): Int {
+        return try {
+            val now = System.currentTimeMillis()
+            chargeSamples.removeAll { now - it.first > 16 * 60_000L }
+            chargeSamples.add(now to p)
+            val first = chargeSamples.first()
+            val mins = (now - first.first) / 60_000.0
+            if (mins < 1.5) return 999
+            val gain = p - first.second
+            if (gain <= 0) return 999
+            val perMin = gain / mins
+            ((100 - p) / perMin).toInt().coerceIn(1, 999)
+        } catch (t: Throwable) {
+            999
+        }
     }
 
     private fun paintAod() {
@@ -676,6 +776,10 @@ class MainActivity : Activity() {
         val now = Date()
         c.text = SimpleDateFormat("HH:mm", Locale.CHINA).format(now)
         aodDate?.text = SimpleDateFormat("M月d日 EEEE", Locale.CHINA).format(now)
+        // 黑屏页开着时拔/插线没有广播也保证 10 秒内变回来
+        if (aodChargingShown || runCatching { isChargingNow() }.getOrDefault(false)) {
+            applyAodMode()
+        }
     }
 
     private fun wakeUp() {
@@ -689,6 +793,13 @@ class MainActivity : Activity() {
         aodView = null
         aodClock = null
         aodDate = null
+        aodClockCol = null
+        aodChargeCol = null
+        aodBattery = null
+        aodChargeTitle = null
+        aodChargeSub = null
+        aodWakeBtn = null
+        aodChargingShown = false
         try {
             window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } catch (t: Throwable) {
@@ -883,6 +994,160 @@ class MainActivity : Activity() {
     }
 }
 
+/**
+ * 竖向大电池（充电锁屏页用，1.0.34）：
+ * 绿色液面从底部涨到电量高度、表面一道缓波、液里有气泡上浮、
+ * 中央一颗白色闪电轻轻呼吸。百分比写在液面下方的电池里。
+ */
+class ChargeBatteryView(ctx: Context) : View(ctx) {
+
+    private val d = resources.displayMetrics.density
+    var percent: Int = 50
+        set(v) {
+            field = v.coerceIn(0, 100)
+            postInvalidateOnAnimation()
+        }
+
+    private val shellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.argb(200, 235, 245, 255)
+    }
+    private val capPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(200, 235, 245, 255)
+    }
+    private val liquidPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val boltPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val boltEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f * d
+        color = Color.argb(120, 0, 0, 0)
+    }
+    private val txtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        isFakeBoldText = true
+        textAlign = Paint.Align.CENTER
+        setShadowLayer(4f * d, 0f, 2f * d, Color.argb(160, 0, 0, 0))
+    }
+
+    // 气泡
+    private class Bubble(val fx: Float, val speed: Float, val size: Float, var phase: Float)
+    private val bubbles = ArrayList<Bubble>().apply {
+        add(Bubble(0.28f, 0.00035f, 7f, 0.05f))
+        add(Bubble(0.55f, 0.00028f, 5f, 0.42f))
+        add(Bubble(0.74f, 0.00040f, 6f, 0.71f))
+        add(Bubble(0.42f, 0.00032f, 4f, 0.88f))
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val t = System.currentTimeMillis()
+
+        val capW = w * 0.34f
+        val capH = h * 0.035f
+        val body = RectF(w * 0.10f, capH + h * 0.02f, w * 0.90f, h * 0.985f)
+
+        // 壳
+        shellPaint.strokeWidth = 4.5f * d
+        canvas.drawRoundRect(body, 20f * d, 20f * d, shellPaint)
+        // 顶部正极帽
+        canvas.drawRoundRect(
+            RectF(body.centerX() - capW / 2f, h * 0.008f, body.centerX() + capW / 2f, capH + h * 0.012f),
+            7f * d, 7f * d, capPaint
+        )
+
+        // 液面：底部涨到 percent，表面一道缓波
+        val inset = 7f * d
+        val innerLeft = body.left + inset
+        val innerRight = body.right - inset
+        val innerBottom = body.bottom - inset
+        val innerTop = body.top + inset
+        val waveAmp = 4f * d
+        val level = innerBottom - (innerBottom - innerTop) * (percent / 100f)
+
+        canvas.save()
+        val clip = android.graphics.Path().apply {
+            addRoundRect(
+                RectF(innerLeft, innerTop, innerRight, innerBottom),
+                14f * d, 14f * d, android.graphics.Path.Direction.CCW
+            )
+        }
+        canvas.clipPath(clip)
+
+        val liquid = android.graphics.Path().apply {
+            moveTo(innerLeft, innerBottom)
+            lineTo(innerLeft, level)
+            var x = innerLeft
+            val span = innerRight - innerLeft
+            val k = 2f * Math.PI / span
+            while (x < innerRight) {
+                x += 8f * d
+                val y = level + waveAmp * Math.sin(k * x + t / 620.0)
+                lineTo(minOf(x, innerRight), y.toFloat())
+            }
+            lineTo(innerRight, innerBottom)
+            close()
+        }
+        liquidPaint.shader = android.graphics.LinearGradient(
+            0f, level, 0f, innerBottom,
+            Color.parseColor("#4ADE80"), Color.parseColor("#15803D"),
+            android.graphics.Shader.TileMode.CLAMP
+        )
+        canvas.drawPath(liquid, liquidPaint)
+        liquidPaint.shader = null
+
+        // 液面高光线
+        val hl = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(90, 255, 255, 255) }
+        hl.strokeWidth = 2f * d
+        hl.style = Paint.Style.STROKE
+        val hlPath = android.graphics.Path()
+        var hx = innerLeft
+        val hspan = innerRight - innerLeft
+        val hk = 2f * Math.PI / hspan
+        hlPath.moveTo(hx, (level + waveAmp * Math.sin(t / 620.0)).toFloat())
+        while (hx < innerRight) {
+            hx += 8f * d
+            hlPath.lineTo(minOf(hx, innerRight), (level + waveAmp * Math.sin(hk * hx + t / 620.0)).toFloat())
+        }
+        canvas.drawPath(hlPath, hl)
+
+        // 气泡：只在液面以下上浮
+        for (b in bubbles) {
+            val ph = ((b.phase + t * b.speed) % 1.0f)
+            val y = innerBottom - ph * (innerBottom - level).coerceAtLeast(1f)
+            val wob = 3f * d * Math.sin(ph * 6.0 + b.fx * 9.0).toFloat()
+            glowPaint.color = Color.argb(((1f - ph) * 110f).toInt(), 255, 255, 255)
+            canvas.drawCircle(innerLeft + b.fx * (innerRight - innerLeft) + wob, y, b.size * d, glowPaint)
+        }
+
+        // 中央闪电：白色 + 深描边 + 呼吸；压在液面中央最显眼
+        val s = minOf(w * 0.30f, (innerBottom - innerTop) * 0.22f)
+        val cx = body.centerX()
+        val cy = body.centerY() - h * 0.02f
+        val bolt = android.graphics.Path().apply {
+            moveTo(cx + s * 0.12f, cy - s * 0.62f)
+            lineTo(cx - s * 0.34f, cy + s * 0.10f)
+            lineTo(cx - s * 0.04f, cy + s * 0.10f)
+            lineTo(cx - s * 0.14f, cy + s * 0.62f)
+            lineTo(cx + s * 0.34f, cy - s * 0.10f)
+            lineTo(cx + s * 0.04f, cy - s * 0.10f)
+            close()
+        }
+        boltPaint.alpha = (215 + (40 * Math.sin(t / 380.0)).toInt()).coerceIn(150, 255)
+        canvas.drawPath(bolt, boltEdge)
+        canvas.drawPath(bolt, boltPaint)
+
+        // 百分比：液面下方居中
+        txtPaint.textSize = 30f * d
+        canvas.drawText("$percent%", body.centerX(), innerBottom - 16f * d, txtPaint)
+
+        canvas.restore()
+        postInvalidateOnAnimation()
+    }
+}
+
 /** 大电池图标：<20% 红，<40% 黄，其余绿 */
 class BatteryView(ctx: Context) : View(ctx) {
 
@@ -923,49 +1188,68 @@ class BatteryView(ctx: Context) : View(ctx) {
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
         val c = levelColor(percent)
-        val capW = h * 0.14f
-        val body = RectF(d * 3f, d * 5f, w - capW - d * 3f, h - d * 5f)
 
-        shellPaint.strokeWidth = 4f * d
-        shellPaint.color = c
-        canvas.drawRoundRect(body, 10f * d, 10f * d, shellPaint)
+        // 布局：数字靠左、电池壳靠右。上一版闪电直接压在数字上，两层字叠着看，丑且读不清。
+        val capW = h * 0.10f
+        val bodyW = h * 1.55f
+        val body = RectF(w - bodyW - capW - d * 2f, h * 0.16f, w - capW - d * 2f, h * 0.84f)
 
-        fillPaint.color = c
+        // 充电时壳色轻微呼吸，远看也知道在充电
+        var shellAlpha = 255
+        if (charging) {
+            val t = System.currentTimeMillis()
+            shellAlpha = (200 + (55 * kotlin.math.sin(t / 320.0)).toInt()).coerceIn(140, 255)
+        }
+        shellPaint.strokeWidth = 3.5f * d
+        shellPaint.color = Color.argb(shellAlpha, Color.red(c), Color.green(c), Color.blue(c))
+        canvas.drawRoundRect(body, 8f * d, 8f * d, shellPaint)
+
+        // 正极小帽
+        fillPaint.color = Color.argb(shellAlpha, Color.red(c), Color.green(c), Color.blue(c))
         canvas.drawRoundRect(
-            RectF(body.right + d, h * 0.36f, w - d, h * 0.64f),
-            4f * d, 4f * d, fillPaint
+            RectF(body.right + d * 2f, body.centerY() - h * 0.13f, w - d, body.centerY() + h * 0.13f),
+            3f * d, 3f * d, fillPaint
         )
 
-        val inset = 7f * d
+        // 电量填充
+        val inset = 5f * d
         val ratio = percent.coerceIn(0, 100) / 100f
         val inner = RectF(
             body.left + inset, body.top + inset,
             body.left + inset + (body.width() - inset * 2f) * ratio,
             body.bottom - inset
         )
-        if (inner.width() > 1f) canvas.drawRoundRect(inner, 6f * d, 6f * d, fillPaint)
+        fillPaint.color = c
+        if (inner.width() > 1f && percent >= 0) canvas.drawRoundRect(inner, 5f * d, 5f * d, fillPaint)
 
-        txtPaint.textSize = 22f * d
+        // 数字：在电池壳左边，白字大号
+        txtPaint.textSize = 30f * d
         val label = if (percent < 0) "?" else "$percent%"
-        canvas.drawText(label, body.centerX(), body.centerY() + 8f * d, txtPaint)
+        canvas.drawText(label, body.left - 12f * d, h / 2f + 11f * d, txtPaint)
 
-        // 充电中：小闪电压在数字上，alpha 呼吸；数字让位往下挪一点
+        // 充电中：白色小闪电嵌在壳内右侧空白处（不压数字、不压填充），呼吸
         if (charging) {
-            val t = System.currentTimeMillis()
             val boltPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-            boltPaint.color = Color.parseColor("#FFD54F")
-            boltPaint.alpha = (200 + (55 * kotlin.math.sin(t / 300.0))).toInt().coerceIn(120, 255)
-            val s = h * 0.62f
+            boltPaint.color = Color.WHITE
+            boltPaint.alpha = shellAlpha
+            val s = h * 0.42f
             val cx = body.centerX()
-            val cy = body.centerY() - h * 0.18f
+            val cy = body.centerY()
             val p = android.graphics.Path()
-            p.moveTo(cx + s * 0.14f, cy - s * 0.5f)
-            p.lineTo(cx - s * 0.30f, cy + s * 0.06f)
-            p.lineTo(cx - s * 0.04f, cy + s * 0.06f)
-            p.lineTo(cx - s * 0.14f, cy + s * 0.5f)
-            p.lineTo(cx + s * 0.30f, cy - s * 0.06f)
-            p.lineTo(cx + s * 0.04f, cy - s * 0.06f)
+            p.moveTo(cx + s * 0.10f, cy - s * 0.50f)
+            p.lineTo(cx - s * 0.26f, cy + s * 0.08f)
+            p.lineTo(cx - s * 0.02f, cy + s * 0.08f)
+            p.lineTo(cx - s * 0.10f, cy + s * 0.50f)
+            p.lineTo(cx + s * 0.26f, cy - s * 0.08f)
+            p.lineTo(cx + s * 0.02f, cy - s * 0.08f)
             p.close()
+            // 描一圈深色，保证压在绿/黄/红填充上都看得清
+            val withStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = s * 0.10f
+                color = Color.argb(150, 0, 0, 0)
+            }
+            canvas.drawPath(p, withStroke)
             canvas.drawPath(p, boltPaint)
             postInvalidateOnAnimation()
         }

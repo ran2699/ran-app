@@ -213,7 +213,7 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
                 val head = "${label(i)}　${codeText(codes.optInt(i, 0))}　" +
                         "${plainInt(lo)}～${plainInt(hi)} 度"
                 // 副行：雨 20%　比今天冷 3 度（灰字小一号）
-                val sub = subLine(i, hi, hi0, prArr)
+                val sub = subLine(i, hi, lo, hi0, prArr)
                 val ss = android.text.SpannableString(if (sub.isEmpty()) head else head + "\n" + sub)
                 if (sub.isNotEmpty()) {
                     val st = head.length + 1
@@ -244,17 +244,19 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
     private fun plainInt(v: Double): String = if (v.isNaN()) "—" else "${Math.round(v)}"
 
     /** 明天的第二行：降水概率 + 和今天比冷暖，控制在两行之内 */
-    private fun subLine(i: Int, hi: Double, hi0: Double, pr: JSONArray?): String {
+    private fun subLine(i: Int, hi: Double, lo: Double, hi0: Double, pr: JSONArray?): String {
         val parts = ArrayList<String>()
         val p = pr?.optInt(i, -1) ?: -1
-        if (p in 0..99) parts.add(if (p <= 5) "基本不下雨" else "雨 $p%")
+        if (p in 0..99) parts.add(if (p <= 5) "不下雨" else "雨 $p%")
         if (!hi.isNaN() && !hi0.isNaN()) {
             val d = Math.round(hi).toInt() - Math.round(hi0).toInt()
             when {
-                d >= 2 -> parts.add("比今天暖和 $d 度")
+                d >= 2 -> parts.add("比今天暖 $d 度")
                 d <= -2 -> parts.add("比今天冷 ${-d} 度")
                 else -> parts.add("跟今天差不多")
             }
+            val gap = Math.round(hi).toInt() - Math.round(lo).toInt()
+            if (gap >= 10) parts.add("早晚差 $gap 度")
         }
         return parts.joinToString("　")
     }

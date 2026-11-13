@@ -6,6 +6,16 @@
 
 ---
 
+## 1.0.36 — 2026-11-14
+
+- **充电锁屏改走 BATTERY_CHANGED 轮询跳变**（决定性实测：HyperOS 上 reset 造出真实插线事件后
+  动态 POWER_* 接收器毫无日志——广播根本没派发；而 BootReceiver 收显式广播也没进 onReceive）。
+  现在 refreshClock（5 秒一跳）里检测充电状态 false↔true 跳变：变 true 自动进充电锁屏、
+  变 false 自动退回时间形态；POWER_* 接收器保留作加速器并加了日志。
+- 启动时就插着电不算"刚插上"（lastCharging 初始化），避免一打开就弹锁屏。
+
+---
+
 ## 1.0.35 — 2026-11-14
 
 - 修 onNewIntent 读 show_charge：`am start --es` 传的字符串 extra 走 mExtras，

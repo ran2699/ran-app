@@ -211,7 +211,9 @@ class CallActivity : Activity() {
     private fun render() {
         if (preview && CallService.current == null) {
             tagView.text = "来电"
-            nameView.text = if (previewName.isNotEmpty()) previewName else "李存有"
+            val pn = if (previewName.isNotEmpty()) previewName else "李存有"
+            nameView.text = pn
+            nameView.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (pn.length <= 3) 96f else 62f)
             lineView.text = "给你打来了电话"
             lineView.visibility = View.VISIBLE
             numView.text = CallBook.pretty(if (previewNumber.isNotEmpty()) previewNumber else "13703188618")
@@ -238,7 +240,10 @@ class CallActivity : Activity() {
             ""
         }
         val name = CallBook.nameFor(number)
-        nameView.text = if (name.isNotEmpty()) name else "陌生号码"
+        val shown = if (name.isNotEmpty()) name else "陌生号码"
+        nameView.text = shown
+        // 「陌生号码」四个字用 96sp 会被拆成两行，长名字一律降一档
+        nameView.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (shown.length <= 3) 96f else 62f)
         numView.text = CallBook.pretty(number)
         numView.visibility = View.VISIBLE
 

@@ -109,15 +109,6 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_config" />
         </service>
-        <!-- 充电页：插电弹出，大电池动画，点一下回桌面 -->
-        <activity
-            android:name="com.ran.eldervideo.ChargeActivity"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:excludeFromRecents="true"
-            android:screenOrientation="portrait"
-            android:theme="@style/Theme.Ran.Main" />
-
         <!-- 开机自启 + 插电弹充电页 -->
         <receiver
             android:name="com.ran.eldervideo.BootReceiver"

@@ -256,15 +256,19 @@ class SwipeService : AccessibilityService() {
         }
 
         val x = screenW / 2f
-        // 起点和终点都落在中间视频区：0.80 ↔ 0.20，避开顶栏和底栏
-        val startY = if (up) screenH * 0.78f else screenH * 0.22f
-        val endY = if (up) screenH * 0.22f else screenH * 0.78f
+        // 起止点必须整段落在"抖音自己的"视频区里。
+        // 1.0.13 之前用 0.78↔0.22：起点 y=0.78*3200=2496，而底栏顶边在 3200-268dp*3.5=2262，
+        // 起点落在我们自己的底栏窗口里，注入事件被自家窗口吃掉（logcat 里 channel 是
+        // "com.ran.eldervideo (server)"），抖音一个事件都没收到——所以画面永远不翻。
+        // 现在收进 0.66 ↔ 0.18：底栏顶边 0.707、顶栏底边 0.094，两头都留出余量。
+        val startY = if (up) screenH * 0.66f else screenH * 0.18f
+        val endY = if (up) screenH * 0.18f else screenH * 0.66f
 
         // 整段构建都放在 try 里：这些手势对象一旦参数不合法就会抛异常，
         // 1.0.10 就是因为 continueStroke 的参数问题在 try 之外崩了整个进程，
         // 浮层还来不及挂回去，老人屏幕上直接裸奔。
         return try {
-            // 单段、一次性甩到底，180ms 走完 0.78→0.22（末端约 9900px/s）。
+            // 单段、一次性甩到底，180ms 走完 0.66→0.18（末端约 8500px/s）。
             // 两段式 continueStroke 在真机上会被系统直接判 cancelled（1.0.11 实测），
             // 所以还是回到单段——这是唯一真实翻动过视频的形态，只是把速度再提一档。
             val path = Path().apply {

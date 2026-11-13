@@ -25,9 +25,11 @@ class BootReceiver : BroadcastReceiver() {
                     )
                 }
                 Intent.ACTION_POWER_CONNECTED -> {
+                    // 1.0.34：不再开独立充电页，直接拉桌面并带「显示充电锁屏」标记
                     ctx.startActivity(
-                        Intent(ctx, ChargeActivity::class.java)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        Intent(ctx, MainActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            .putExtra("show_charge", true)
                     )
                 }
             }

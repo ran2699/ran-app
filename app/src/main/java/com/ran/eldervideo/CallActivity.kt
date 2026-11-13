@@ -43,6 +43,12 @@ import android.widget.TextView
  */
 class CallActivity : Activity() {
 
+    companion object {
+        /** 界面在不在。CallService 用它决定要不要补拉结束页 */
+        @Volatile
+        var alive = false
+    }
+
     private lateinit var col: LinearLayout
     private lateinit var tagView: TextView
     private lateinit var nameView: TextView
@@ -53,6 +59,7 @@ class CallActivity : Activity() {
     private lateinit var hangBtn: BigCallButton
     private lateinit var answerBtn: BigCallButton
     private lateinit var missedLayer: FrameLayout
+    private lateinit var endHeading: FrameLayout
 
     private val handler = Handler(Looper.getMainLooper())
     private var ringtone: Ringtone? = null
@@ -103,6 +110,7 @@ class CallActivity : Activity() {
         previewNumber = intent?.getStringExtra("preview_number").orEmpty()
         previewState = intent?.getStringExtra("preview_state").orEmpty()
         screenSince = System.currentTimeMillis()
+        alive = true
         Log.i("ElderCall", "CallActivity onCreate preview=$preview previewState=$previewState")
         buildUi()
         setupImmersive()
@@ -155,6 +163,7 @@ class CallActivity : Activity() {
     }
 
     override fun onDestroy() {
+        alive = false
         handler.removeCallbacks(ticker)
         stopRing()
         super.onDestroy()
@@ -253,9 +262,11 @@ class CallActivity : Activity() {
 
         hangBtn = BigCallButton(this, "挂电话", Color.parseColor("#C62828"), Color.parseColor("#6E0A0A"), BigCallButton.ICON_HANG)
         hangBtn.setOnPressListener {
-            // 自己按挂断就安静关掉，不要误报「他没有接你的电话」
+            // 自己按挂断：账本记成 selfHung，界面立刻给一张「电话已经挂断了」，不误报没接
             hungSelf = true
+            CallLedger.markSelfHung()
             CallService.endCall()
+            showEnd()
         }
         answerBtn = BigCallButton(this, "接电话", Color.parseColor("#2E9E4F"), Color.parseColor("#14501F"), BigCallButton.ICON_ANSWER)
         answerBtn.setOnPressListener { CallService.acceptCall() }
@@ -276,13 +287,10 @@ class CallActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(dp(34), dp(60), dp(34), dp(60))
         }
-        // 断行位置写死，不让它自己断在「电/话」中间
-        val msg = "他没有接你的电话\n你可以过一会再拨"
-        val heading = FrameLayout(this)
-        heading.addView(StrokeLabel(this, msg, 36f), FrameLayout.LayoutParams(-1, -2))
-        heading.addView(FillLabel(this, msg, 36f), FrameLayout.LayoutParams(-1, -2))
+        // 字由 showEnd() 填：红字白边 = 没接上，白字 = 挂了
+        endHeading = FrameLayout(this)
         missCol.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
-        missCol.addView(heading, LinearLayout.LayoutParams(-1, -2))
+        missCol.addView(endHeading, LinearLayout.LayoutParams(-1, -2))
         missCol.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
         val closeBtn = BigCallButton(this, "关闭", Color.parseColor("#3A3F46"), Color.parseColor("#22262B"), BigCallButton.ICON_CROSS)
         closeBtn.textSizeSp = 34f
@@ -339,16 +347,47 @@ class CallActivity : Activity() {
         nameView.text = name
     }
 
-    private fun showMissed() {
+    /** 填结束页上的字。断行写死，不让它自己断在「电/话」中间 */
+    private fun setHeading(msg: String, red: Boolean) {
+        endHeading.removeAllViews()
+        if (red) {
+            endHeading.addView(StrokeLabel(this, msg, 36f), FrameLayout.LayoutParams(-1, -2))
+            endHeading.addView(FillLabel(this, msg, 36f), FrameLayout.LayoutParams(-1, -2))
+        } else {
+            val tv = TextView(this).apply {
+                text = msg
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 44f)
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                maxLines = 3
+                setLineSpacing(14f * resources.displayMetrics.density, 1f)
+            }
+            endHeading.addView(tv, FrameLayout.LayoutParams(-1, -2))
+        }
+    }
+
+    /** 电话结束那一屏。原因只看账本，不看 Telecom 现在的状态 */
+    private fun showEnd() {
         if (endedShown) return
         endedShown = true
         handler.removeCallbacks(ticker)
         stopRing()
+        val reason = CallLedger.endReason
+        val who = if (CallLedger.name.isNotEmpty()) CallLedger.name else "他"
+        val red = reason == "missed"
+        val msg = when (reason) {
+            "missed" -> "他没有接你的电话\n你可以过一会再拨"
+            "callerHangup" -> who + " 挂断了电话\n你可以给他打回去"
+            else -> "电话已经挂断了"
+        }
         try {
+            setHeading(msg, red)
             col.visibility = View.GONE
             missedLayer.visibility = View.VISIBLE
         } catch (t: Throwable) {
         }
+        Log.i("ElderCall", "end screen reason=$reason")
     }
 
     private fun render() {
@@ -360,13 +399,21 @@ class CallActivity : Activity() {
             return
         }
 
+        // 账本已经定论：不管 Call 对象还在不在，都显示结束页。
+        // 「挂断后有没有页面」只在这一处判断，不再问 Telecom 现在的状态。
+        if (CallLedger.endReason.isNotEmpty()) {
+            showEnd()
+            return
+        }
+
         val call = CallService.current
         if (call == null) {
-            shownOnce = shownOnce || everActive
-            when {
-                outgoing && !everActive && !hungSelf -> showMissed()
-                else -> finishSafely()
-            }
+            // 起来那一瞬间 current 可能还没设好，等一秒再说
+            if (System.currentTimeMillis() - screenSince < 1200) return
+            outgoing = CallLedger.outgoing
+            everActive = CallLedger.everActive
+            CallLedger.settle(everActive, CallLedger.selfHung, outgoing)
+            showEnd()
             return
         }
         shownOnce = true
@@ -382,12 +429,13 @@ class CallActivity : Activity() {
         } catch (t: Throwable) {
             ""
         }
-        if (!shownOnce || call.details.state != Call.STATE_DISCONNECTED) {
-            try {
-                outgoing = call.details.callDirection == Call.Details.DIRECTION_OUTGOING
-            } catch (t: Throwable) {
-            }
+        // 方向以账本为准（DialActivity 拨号那一刻就记下了），Telecom 报 UNKNOWN 也不会错
+        outgoing = CallLedger.outgoing || try {
+            call.details.callDirection == Call.Details.DIRECTION_OUTGOING
+        } catch (t: Throwable) {
+            false
         }
+        if (outgoing) CallLedger.outgoing = true
         // 对方先挂了，Telecom 有时只是把 Call 对象晾在那儿（state 停在 DIALING / ACTIVE），
         // 界面就卡住。只看「状态多久没变」+「音频还在不在通话模式」这两个信号：
         //   已接通：8 秒没变且音频已退出通话 → 收尾
@@ -403,9 +451,10 @@ class CallActivity : Activity() {
             finishSafely()
             return
         }
-        if ((st == Call.STATE_DIALING || st == Call.STATE_CONNECTING) && idleMs > 60000) {
-            Log.i("ElderCall", "拨号 60 秒仍未接通，当作没接上")
-            showMissed()
+        if ((st == Call.STATE_DIALING || st == Call.STATE_CONNECTING) && idleMs > 20000) {
+            Log.i("ElderCall", "拨号 20 秒仍未接通，当作没接上")
+            CallLedger.forceMissed()
+            showEnd()
             return
         }
 
@@ -447,6 +496,7 @@ class CallActivity : Activity() {
             Call.STATE_ACTIVE -> {
                 if (!everActive) {
                     everActive = true
+                    CallLedger.everActive = true
                     connectAt = System.currentTimeMillis()
                     notifyConnected()
                 }
@@ -465,7 +515,8 @@ class CallActivity : Activity() {
             }
             Call.STATE_DISCONNECTED -> {
                 stopRing()
-                if (outgoing && !everActive && !hungSelf) showMissed() else finishSafely()
+                CallLedger.settle(everActive, hungSelf, outgoing)
+                showEnd()
             }
             else -> {
             }
@@ -477,7 +528,13 @@ class CallActivity : Activity() {
         val pnum = if (previewNumber.isNotEmpty()) previewNumber else "18712961913"
         when (previewState) {
             "missed" -> {
-                showMissed()
+                if (!endedShown) {
+                    endedShown = true
+                    handler.removeCallbacks(ticker)
+                    setHeading("他没有接你的电话\n你可以过一会再拨", true)
+                    col.visibility = View.GONE
+                    missedLayer.visibility = View.VISIBLE
+                }
             }
             "active" -> {
                 setName(pn)

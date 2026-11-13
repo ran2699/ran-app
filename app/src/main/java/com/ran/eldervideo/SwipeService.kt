@@ -257,30 +257,21 @@ class SwipeService : AccessibilityService() {
 
         val x = screenW / 2f
         // 起点和终点都落在中间视频区：0.80 ↔ 0.20，避开顶栏和底栏
-        val startY = if (up) screenH * 0.80f else screenH * 0.20f
-        val kneeY = if (up) screenH * 0.56f else screenH * 0.44f
-        val endY = if (up) screenH * 0.20f else screenH * 0.80f
+        val startY = if (up) screenH * 0.78f else screenH * 0.22f
+        val endY = if (up) screenH * 0.22f else screenH * 0.78f
 
         // 整段构建都放在 try 里：这些手势对象一旦参数不合法就会抛异常，
         // 1.0.10 就是因为 continueStroke 的参数问题在 try 之外崩了整个进程，
         // 浮层还来不及挂回去，老人屏幕上直接裸奔。
         return try {
-            // 两段式：前半段慢、后半段快。
-            // 抖音上下翻页看的是手指抬起那一瞬的速度（ViewPager2 的 fling 判定），
-            // 匀速划过去的注入手势它不认。末端速度拉到约 7000px/s 才翻得动。
-            val bend = screenW * 0.015f
-            val path1 = Path().apply {
+            // 单段、一次性甩到底，180ms 走完 0.78→0.22（末端约 9900px/s）。
+            // 两段式 continueStroke 在真机上会被系统直接判 cancelled（1.0.11 实测），
+            // 所以还是回到单段——这是唯一真实翻动过视频的形态，只是把速度再提一档。
+            val path = Path().apply {
                 moveTo(x, startY)
-                cubicTo(x + bend, startY - (startY - kneeY) * 0.5f, x - bend, kneeY + (startY - kneeY) * 0.2f, x, kneeY)
-            }
-            val path2 = Path().apply {
-                moveTo(x, kneeY)
                 lineTo(x, endY)
             }
-            // continueStroke 要求上一段带 willContinue=true，否则抛
-            // IllegalStateException: Only strokes marked willContinue can be continued
-            val s1 = GestureDescription.StrokeDescription(path1, 0L, 150L, true)
-            val stroke = s1.continueStroke(path2, 0L, 120L, false)
+            val stroke = GestureDescription.StrokeDescription(path, 0L, 180L)
             val gesture = GestureDescription.Builder()
                 .addStroke(stroke)
                 .build()
@@ -296,7 +287,7 @@ class SwipeService : AccessibilityService() {
                     onDone?.invoke()
                 }
             }, handler)
-            Log.i(TAG, "dispatchGesture=$ok up=$up y=$startY->$kneeY->$endY screen=$screenW x $screenH")
+            Log.i(TAG, "dispatchGesture=$ok up=$up y=$startY->$endY screen=$screenW x $screenH")
             ok
         } catch (e: Throwable) {
             Log.e(TAG, "dispatchGesture exception", e)

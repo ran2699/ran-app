@@ -79,10 +79,10 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
         })
 
         // 今天的信息在上面 descText 里已经有了，这里只列明天/后天，避免"今天"写两遍
-        rowTomorrow = tv("明天", 28f, Color.WHITE, Typeface.BOLD).apply {
+        rowTomorrow = tv("明天", 26f, Color.WHITE, Typeface.BOLD).apply {
             setLineSpacing(dp(6).toFloat(), 1f)
         }
-        rowAfter = tv("后天", 28f, Color.WHITE, Typeface.BOLD).apply {
+        rowAfter = tv("后天", 26f, Color.WHITE, Typeface.BOLD).apply {
             setLineSpacing(dp(6).toFloat(), 1f)
         }
         content.addView(rowTomorrow, lp(top = 6))
@@ -211,7 +211,7 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
                 val lo = tmin.optDouble(i, Double.NaN)
                 // 主行：明天　多云　4～17 度
                 val head = "${label(i)}　${codeText(codes.optInt(i, 0))}　" +
-                        "${plainInt(lo)}～${plainInt(hi)} 度"
+                        "最高 ${plainInt(hi)} 度 最低 ${plainInt(lo)} 度"
                 // 副行：雨 20%　比今天冷 3 度（灰字小一号）
                 val sub = subLine(i, hi, lo, hi0, prArr)
                 val ss = android.text.SpannableString(if (sub.isEmpty()) head else head + "\n" + sub)

@@ -6,6 +6,13 @@
 
 ---
 
+## 1.0.35 — 2026-11-14
+
+- 修 onNewIntent 读 show_charge：`am start --es` 传的字符串 extra 走 mExtras，
+  上一版只认 getBooleanExtra（--ez/putExtra），BootReceiver 链路实测漏判；两种传法都认。
+
+---
+
 ## 1.0.34 — 2026-11-14
 
 ### 改（按用户反馈重做充电显示）

@@ -71,6 +71,7 @@ class CallActivity : Activity() {
     private var endedShown = false
     private var speakerOn = false
     private var hungSelf = false
+    private var screenSince = 0L
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -99,6 +100,7 @@ class CallActivity : Activity() {
         previewName = intent?.getStringExtra("preview_name").orEmpty()
         previewNumber = intent?.getStringExtra("preview_number").orEmpty()
         previewState = intent?.getStringExtra("preview_state").orEmpty()
+        screenSince = System.currentTimeMillis()
         buildUi()
         setupImmersive()
         render()
@@ -156,6 +158,24 @@ class CallActivity : Activity() {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    /** 字号自动收缩：宁可字大一点，也不能因为系统字体被放大而裁掉半个字 */
+    private fun autoSize(tv: TextView, minSp: Int, maxSp: Int, lines: Int) {
+        tv.maxLines = lines
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            tv.setAutoSizeTextTypeUniformWithConfiguration(
+                minSp, maxSp, 2, TypedValue.COMPLEX_UNIT_SP
+            )
+        }
+    }
+
+    /** 系统那边还有没有通话。Call 对象失效后 details 会停在旧状态，只能问系统 */
+    private fun systemInCall(): Boolean = try {
+        val tm = getSystemService(android.telephony.TelephonyManager::class.java)
+        tm.callState != android.telephony.TelephonyManager.CALL_STATE_IDLE
+    } catch (t: Throwable) {
+        true
+    }
 
     private fun buildUi() {
         val root = FrameLayout(this)
@@ -266,6 +286,11 @@ class CallActivity : Activity() {
         root.addView(missedLayer, FrameLayout.LayoutParams(-1, -1))
 
         setContentView(root)
+        autoSize(nameView, 44, 96, 2)
+        autoSize(lineView, 30, 52, 2)
+        autoSize(stateView, 28, 40, 1)
+        autoSize(hintView, 30, 44, 2)
+        Haptics.attach(window.decorView)
     }
 
     /**
@@ -305,7 +330,6 @@ class CallActivity : Activity() {
 
     private fun setName(name: String) {
         nameView.text = name
-        nameView.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (name.length <= 3) 96f else 62f)
     }
 
     private fun showMissed() {
@@ -339,6 +363,13 @@ class CallActivity : Activity() {
             return
         }
         shownOnce = true
+
+        // 对方先挂了，Telecom 有时只是把 Call 对象晾在那儿（state 停在 DIALING），
+        // 界面就卡在「正在打电话」。问系统有没有通话，没有就收尾。
+        if (System.currentTimeMillis() - screenSince > 3000 && !systemInCall()) {
+            if (outgoing && !everActive && !hungSelf) showMissed() else finishSafely()
+            return
+        }
 
         val st = try {
             call.details.state
@@ -384,7 +415,7 @@ class CallActivity : Activity() {
                 lineView.text = "打电话"
                 lineView.visibility = View.VISIBLE
                 stateView.text = ""
-                hintView.text = "你再等一会，他还没有接电话"
+                hintView.text = "你再等一会\n他还没有接电话"
                 hintView.setTextColor(Color.parseColor("#CFD8DC"))
                 hintView.visibility = View.VISIBLE
                 answerBtn.visibility = View.GONE
@@ -442,7 +473,7 @@ class CallActivity : Activity() {
                 tagView.visibility = View.VISIBLE
                 lineView.text = "打电话"
                 numView.text = CallBook.pretty(pnum)
-                hintView.text = "你再等一会，他还没有接电话"
+                hintView.text = "你再等一会\n他还没有接电话"
                 hintView.setTextColor(Color.parseColor("#CFD8DC"))
                 stateView.text = ""
                 answerBtn.visibility = View.GONE

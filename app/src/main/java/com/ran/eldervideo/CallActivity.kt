@@ -185,7 +185,7 @@ class CallActivity : Activity() {
         hintView = TextView(this).apply {
             text = "点一下绿色的按钮接电话"
             setTextColor(Color.parseColor("#7BD88F"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
             gravity = Gravity.CENTER
             maxLines = 2
         }

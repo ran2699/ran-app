@@ -6,6 +6,22 @@
 
 ---
 
+## 1.0.22 — 2026-11-13
+
+### 拨不出去（Permission Denial: starting Intent act=android.intent.action.CALL）
+- 原因：`CALL_PHONE` 的 `granted=false`。拨号器角色（DIALER role）在 HyperOS 上只给了
+  `GRANTED_BY_ROLE` 标记，运行时权限并没有真正落地，`ACTION_CALL` 会被系统拒。
+- 修：DialActivity 拨号前自己查/申请权限，申请通过后再拨；失败退到 `TelecomManager.placeCall`，
+  再失败给出「设置 → 应用 → 老年桌面 → 权限 → 电话」的提示。
+- MainActivity 开机时申请一次（存储标记只问一次），避免老人点「确定打电话」时被打断。
+
+### 天气明天/后天写详细
+- 每行变两行：主行「明天　多云　4～17 度」（28sp 白粗），
+  副行 22sp 灰字「雨 20%　比今天冷 3 度」。
+- 副行内容：降水概率（≤5% 写「基本不下雨」）+ 与今天最高温的对比（差 2 度以内写「跟今天差不多」）。
+
+---
+
 ## 1.0.21 — 2026-11-13
 
 - 来电页绿字提示「点一下绿色的按钮接电话」34→30sp，一行放得下不折行。

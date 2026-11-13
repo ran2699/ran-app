@@ -7,7 +7,10 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
-import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -19,24 +22,32 @@ import android.widget.TextView
 import android.widget.Toast
 
 /**
- * 极简拨号页。
- * 本应用是默认电话应用之后，桌面上「打电话」那颗键（ACTION_DIAL）会落到这里，
- * 所以这个页面必须存在——不然老人按了没反应。
- * 上面一个常用号码（王敬然），下面一整块大键盘，拨出去用系统电话通道。
+ * 打电话三步走，每一步只问一件事：
+ *   1  你是不是想要给别人打电话      → 我要打电话 / 我不要打电话
+ *   2  你要给谁打电话？              → 六个名字（一排两个）+ 我不打电话
+ *   3  你是不是要给 XXX 打去电话     → 确定打电话 / 不打电话
+ * 按钮都往里收，离屏幕边和底边留出空档，防误触。
  */
 class DialActivity : Activity() {
 
-    private lateinit var shown: TextView
-    private var num = ""
+    private lateinit var root: FrameLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val extra = intent?.data?.schemeSpecificPart.orEmpty()
-        if (extra.isNotEmpty()) num = extra.filter { it.isDigit() }
-        buildUi()
+        root = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#0B0B0B")) }
+        setContentView(root)
         setupImmersive()
-        update()
+
+        val tel = intent?.data?.schemeSpecificPart.orEmpty()
+        if (tel.isNotEmpty()) {
+            val digits = tel.filter { it.isDigit() }
+            val name = CallBook.nameFor(digits).ifEmpty { CallBook.pretty(digits) }
+            showConfirm(name, digits)
+        } else {
+            showAsk()
+        }
     }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) setupImmersive()
@@ -61,116 +72,7 @@ class DialActivity : Activity() {
         }
     }
 
-
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-
-    private fun buildUi() {
-        val root = FrameLayout(this)
-        root.setBackgroundColor(Color.parseColor("#0B0B0B"))
-
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(30), dp(22), dp(190))
-        }
-
-        col.addView(label("打电话", 38f, Color.WHITE, true), LinearLayout.LayoutParams(-1, -2))
-
-        shown = label("", 52f, Color.WHITE, true).apply { gravity = Gravity.CENTER }
-        col.addView(shown, LinearLayout.LayoutParams(-1, dp(78)).apply { topMargin = dp(14) })
-
-        // 常用号码：一下就到
-        val quick = label("王敬然　187 1296 1913", 32f, Color.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#1B3D2B"))
-                setStroke(dp(3), Color.parseColor("#2E9E4F"))
-                cornerRadius = dp(18).toFloat()
-            }
-            setOnClickListener { dialTo("18712961913") }
-        }
-        col.addView(quick, LinearLayout.LayoutParams(-1, dp(92)).apply { topMargin = dp(10) })
-
-        val pad = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val rows = listOf(
-            listOf("1", "2", "3"),
-            listOf("4", "5", "6"),
-            listOf("7", "8", "9"),
-            listOf("*", "0", "#")
-        )
-        for (r in rows) {
-            val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            for (k in r) {
-                val b = label(k, 44f, Color.WHITE, true).apply {
-                    gravity = Gravity.CENTER
-                    background = GradientDrawable().apply {
-                        setColor(Color.parseColor("#1C2530"))
-                        cornerRadius = dp(16).toFloat()
-                    }
-                    setOnClickListener {
-                        if (num.length < 15) {
-                            num += k
-                            update()
-                        }
-                    }
-                }
-                line.addView(b, LinearLayout.LayoutParams(0, dp(76), 1f).apply {
-                    rightMargin = dp(6)
-                    leftMargin = dp(6)
-                    bottomMargin = dp(10)
-                })
-            }
-            pad.addView(line, LinearLayout.LayoutParams(-1, -2))
-        }
-        col.addView(pad, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-
-        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val back = label("退格", 32f, Color.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#37414D"))
-                cornerRadius = dp(16).toFloat()
-            }
-            setOnClickListener {
-                if (num.isNotEmpty()) {
-                    num = num.substring(0, num.length - 1)
-                    update()
-                }
-            }
-        }
-        bottom.addView(back, LinearLayout.LayoutParams(0, dp(112), 1f).apply { rightMargin = dp(8) })
-
-        val call = label("拨出去", 40f, Color.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#2E9E4F"))
-                setStroke(dp(3), Color.WHITE)
-                cornerRadius = dp(20).toFloat()
-            }
-            setOnClickListener {
-                if (num.isBlank()) toast("先按号码") else dialTo(num)
-            }
-        }
-        bottom.addView(call, LinearLayout.LayoutParams(0, dp(112), 2f).apply { leftMargin = dp(8) })
-        col.addView(bottom, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
-
-        // 右下角常驻返回
-        val backBall = label("回桌面", 30f, Color.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#D3261B"))
-                setStroke(dp(3), Color.WHITE)
-                cornerRadius = dp(999).toFloat()
-            }
-            setOnClickListener { finish() }
-        }
-        root.addView(backBall, FrameLayout.LayoutParams(dp(150), dp(150), Gravity.BOTTOM or Gravity.END).apply {
-            rightMargin = dp(16)
-            bottomMargin = dp(16)
-        })
-
-        root.addView(col, FrameLayout.LayoutParams(-1, -1))
-        setContentView(root)
-    }
 
     private fun label(text: String, sp: Float, color: Int, bold: Boolean): TextView =
         TextView(this).apply {
@@ -178,24 +80,157 @@ class DialActivity : Activity() {
             setTextColor(color)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
             if (bold) typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
         }
 
-    private fun update() {
-        shown.text = if (num.isEmpty()) "按号码" else CallBook.pretty(num)
-        if (num.isEmpty()) shown.setTextColor(Color.parseColor("#5C6773")) else shown.setTextColor(Color.WHITE)
+    private fun bigButton(
+        text: String,
+        face: Int,
+        dark: Int,
+        icon: Int,
+        height: Int,
+        textSp: Float,
+        onClick: () -> Unit
+    ): BigCallButton = BigCallButton(this, text, face, dark, icon).apply {
+        textSizeSp = textSp
+        iconSizeDp = if (icon == BigCallButton.ICON_NONE) 0f else 54f
+        setOnPressListener(onClick)
     }
 
-    private fun dialTo(number: String) {
+    private fun column(top: Int, bottom: Int, side: Int): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(side), dp(top), dp(side), dp(bottom))
+        }
+
+    private fun switchTo(col: LinearLayout) {
+        root.removeAllViews()
+        root.addView(col, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    // ---------- 第一步：要不要打电话 ----------
+    private fun showAsk() {
+        val col = column(120, 60, 34)
+        col.addView(
+            label("你是不是\n想要给别人打电话", 44f, Color.WHITE, true).apply { maxLines = 2 },
+            LinearLayout.LayoutParams(-1, -2)
+        )
+        col.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
+
+        col.addView(
+            bigButton("我要打电话", Color.parseColor("#2E9E4F"), Color.parseColor("#14501F"),
+                BigCallButton.ICON_NONE, dp(180), 44f) { showPicker() },
+            LinearLayout.LayoutParams(-1, dp(180))
+        )
+        col.addView(
+            bigButton("我不要打电话", Color.parseColor("#C62828"), Color.parseColor("#6E0A0A"),
+                BigCallButton.ICON_NONE, dp(180), 44f) { finish() },
+            LinearLayout.LayoutParams(-1, dp(180)).apply { topMargin = dp(30) }
+        )
+        switchTo(col)
+    }
+
+    // ---------- 第二步：给谁打 ----------
+    private fun showPicker() {
+        val col = column(50, 34, 26)
+        col.addView(label("你要给谁打电话？", 42f, Color.WHITE, true), LinearLayout.LayoutParams(-1, -2))
+        col.addView(View(this), LinearLayout.LayoutParams(-1, dp(22)))
+
+        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val cells = 8
+        var index = 0
+        for (r in 0 until (cells / 2)) {
+            val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (c in 0 until 2) {
+                val i = index++
+                val contact = CallBook.contacts.getOrNull(i)
+                val cell: View
+                if (contact != null) {
+                    cell = label(contact.first, 40f, Color.WHITE, true).apply {
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#1E3A5F"))
+                            setStroke(dp(3), Color.parseColor("#5B8FD6"))
+                            cornerRadius = dp(18).toFloat()
+                        }
+                        setOnClickListener { showConfirm(contact.first, contact.second) }
+                    }
+                } else {
+                    cell = label("空着", 34f, Color.parseColor("#59636E"), false).apply {
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#15191F"))
+                            setStroke(dp(2), Color.parseColor("#2A3138"))
+                            cornerRadius = dp(18).toFloat()
+                        }
+                    }
+                }
+                line.addView(cell, LinearLayout.LayoutParams(0, dp(88), 1f).apply {
+                    leftMargin = dp(6)
+                    rightMargin = dp(6)
+                    bottomMargin = dp(12)
+                })
+            }
+            grid.addView(line, LinearLayout.LayoutParams(-1, -2))
+        }
+        col.addView(grid, LinearLayout.LayoutParams(-1, -2))
+        col.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
+
+        col.addView(
+            bigButton("我不打电话", Color.parseColor("#C62828"), Color.parseColor("#6E0A0A"),
+                BigCallButton.ICON_NONE, dp(130), 42f) { finish() },
+            LinearLayout.LayoutParams(-1, dp(130)).apply { bottomMargin = dp(20) }
+        )
+        switchTo(col)
+    }
+
+    // ---------- 第三步：给 XXX 打吗 ----------
+    private fun showConfirm(name: String, number: String) {
+        val col = column(130, 70, 34)
+
+        val text = SpannableString("你是不是要给" + name + "打去电话")
+        val start = 6
+        val end = start + name.length
+        text.setSpan(ForegroundColorSpan(Color.parseColor("#FFD54F")), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        text.setSpan(RelativeSizeSpan(1.25f), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+
+        col.addView(
+            TextView(this).apply {
+                this.text = text
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 46f)
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                maxLines = 3
+            },
+            LinearLayout.LayoutParams(-1, -2)
+        )
+        col.addView(
+            label(CallBook.pretty(number), 34f, Color.parseColor("#CFD8DC"), false),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) }
+        )
+        col.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
+
+        col.addView(
+            bigButton("确定打电话", Color.parseColor("#2E9E4F"), Color.parseColor("#14501F"),
+                BigCallButton.ICON_TICK, dp(170), 42f) { dial(number) },
+            LinearLayout.LayoutParams(-1, dp(170))
+        )
+        col.addView(
+            bigButton("不打电话", Color.parseColor("#C62828"), Color.parseColor("#6E0A0A"),
+                BigCallButton.ICON_CROSS, dp(170), 42f) { finish() },
+            LinearLayout.LayoutParams(-1, dp(170)).apply { topMargin = dp(28) }
+        )
+        switchTo(col)
+    }
+
+    private fun dial(number: String) {
         try {
             val i = Intent(Intent.ACTION_CALL, Uri.parse("tel:" + number.filter { it.isDigit() }))
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(i)
+            finish()
         } catch (t: Throwable) {
-            toast("拨不出去：" + (t.message ?: "没有打电话权限"))
+            Toast.makeText(this, "拨不出去：" + (t.message ?: "没有打电话权限"), Toast.LENGTH_LONG).show()
         }
-    }
-
-    private fun toast(msg: String) {
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 }

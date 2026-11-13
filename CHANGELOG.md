@@ -6,6 +6,21 @@
 
 ---
 
+## 1.0.15 — 2026-11-13
+
+### 修（清后台就要重新授权无障碍）
+- 实测定性：HyperOS 清理后台之后不只是服务实例掉了，是**开关被整条删掉**——
+  `settings get secure accessibility_enabled` 从 1 变成 0、`enabled_accessibility_services` 从有值变成 `null`。
+  所以老人每次清后台再进桌面，都得重新去设置里点一遍。
+- 改法：`MainActivity` 新增 `selfHealA11y()`。进桌面时判断无障碍没开，就把
+  `enabled_accessibility_services`（保留其它服务，追加自己）和 `accessibility_enabled=1`
+  用 `WRITE_SECURE_SETTINGS` 写回系统，1.2 秒后再复查一次；写不进去才亮那条红条。
+- 前提：装完包用 `adb shell pm grant com.ran.eldervideo android.permission.WRITE_SECURE_SETTINGS`
+  授一次权限。该授权永久有效、重启不丢、覆盖安装保留。
+- 副作用：开关写回后老人不用再点任何东西；若权限没授，行为与 1.0.14 完全一致（红条兜底）。
+
+---
+
 ## 1.0.14 — 2026-11-13
 
 ### 修（抖音翻页，找到真凶了）

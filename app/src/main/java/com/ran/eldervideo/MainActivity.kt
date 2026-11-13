@@ -44,6 +44,8 @@ class MainActivity : Activity() {
 
     private lateinit var root: FrameLayout
     private lateinit var homePage: View
+    /** 自愈尝试次数：HyperOS 清后台会把无障碍开关整条删掉，进桌面时自己写回 */
+    private var a11yHealTries = 0
     private lateinit var datePage: View
     /** 底栏「关掉手机」键：天气页是后加的整屏 view，会盖住它，得把它抬回最上层 */
     private lateinit var offBtn: View
@@ -704,11 +706,53 @@ class MainActivity : Activity() {
         return alive || sec || mgrOn
     }
 
+    /**
+     * 用自己的权限把无障碍开关写回系统设置。
+     * 实测：HyperOS 清理后台后 accessibility_enabled=0、enabled_accessibility_services=null，
+     * 开关是被整条删掉的，不是服务实例掉了——所以每次都"要重新授权"。
+     * 装完包用 `adb shell pm grant com.ran.eldervideo android.permission.WRITE_SECURE_SETTINGS`
+     * 授一次即可（永久生效、重启不丢），之后老人不用再点任何东西。
+     */
+    private fun selfHealA11y(): Boolean {
+        val svcId = "$packageName/com.ran.eldervideo.SwipeService"
+        return try {
+            val cur = Settings.Secure.getString(
+                contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ).orEmpty()
+            val others = cur.split(':').map { it.trim() }
+                .filter { it.isNotEmpty() && !it.startsWith("$packageName/") }
+            Settings.Secure.putString(
+                contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                (others + svcId).joinToString(":")
+            )
+            Settings.Secure.putInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+            val now = Settings.Secure.getString(
+                contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ).orEmpty()
+            val ok = now.contains("SwipeService")
+            Log.i("ElderUI", "selfHeal a11y ok=$ok list=$now")
+            ok
+        } catch (t: Throwable) {
+            Log.w("ElderUI", "selfHeal a11y failed: ${t.javaClass.simpleName} ${t.message}")
+            false
+        }
+    }
+
     private fun checkAccessibility() {
         if (a11yEnabled()) {
+            a11yHealTries = 0
             a11yTip?.let { v -> runCatching { root.removeView(v) } }
             a11yTip = null
             return
+        }
+        // 开关被清掉时先自己写回去，等系统把服务绑上来再判；写不进去才亮红条
+        if (a11yHealTries < 3) {
+            a11yHealTries++
+            if (selfHealA11y()) {
+                handler.postDelayed({ checkAccessibility() }, 1200L)
+                return
+            }
         }
         if (a11yTip != null) return
         val bar = TextView(this).apply {

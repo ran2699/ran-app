@@ -9,6 +9,7 @@ import android.view.Gravity
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -78,8 +79,12 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
         })
 
         // 今天的信息在上面 descText 里已经有了，这里只列明天/后天，避免"今天"写两遍
-        rowTomorrow = tv("明天", 28f, Color.WHITE, Typeface.BOLD)
-        rowAfter = tv("后天", 28f, Color.WHITE, Typeface.BOLD)
+        rowTomorrow = tv("明天", 28f, Color.WHITE, Typeface.BOLD).apply {
+            setLineSpacing(dp(6).toFloat(), 1f)
+        }
+        rowAfter = tv("后天", 28f, Color.WHITE, Typeface.BOLD).apply {
+            setLineSpacing(dp(6).toFloat(), 1f)
+        }
         content.addView(rowTomorrow, lp(top = 6))
         content.addView(rowAfter, lp(top = 10))
 
@@ -199,18 +204,32 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
             descText.text = "今天" + codeText(codes.optInt(0, curCode)) +
                     "，最高 " + plainInt(hi0) + " 度，最低 " + plainInt(lo0) + " 度。"
 
-            val sb = StringBuilder()
+            val prArr = daily.optJSONArray("precipitation_probability_max")
             for (i in 1 until 3) {
                 if (i >= times.length()) break
                 val hi = tmax.optDouble(i, Double.NaN)
                 val lo = tmin.optDouble(i, Double.NaN)
-                val line = "${label(i)}　${codeText(codes.optInt(i, 0))}　" +
+                // 主行：明天　多云　4～17 度
+                val head = "${label(i)}　${codeText(codes.optInt(i, 0))}　" +
                         "${plainInt(lo)}～${plainInt(hi)} 度"
-                when (i) {
-                    1 -> rowTomorrow.text = line
-                    2 -> rowAfter.text = line
+                // 副行：雨 20%　比今天冷 3 度（灰字小一号）
+                val sub = subLine(i, hi, hi0, prArr)
+                val ss = android.text.SpannableString(if (sub.isEmpty()) head else head + "\n" + sub)
+                if (sub.isNotEmpty()) {
+                    val st = head.length + 1
+                    ss.setSpan(
+                        android.text.style.AbsoluteSizeSpan(22, true), st, ss.length,
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                    ss.setSpan(
+                        android.text.style.ForegroundColorSpan(Color.parseColor("#9AA5B1")), st, ss.length,
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
                 }
-                sb.append(line)
+                when (i) {
+                    1 -> rowTomorrow.text = ss
+                    2 -> rowAfter.text = ss
+                }
             }
 
             verdict.text = buildVerdict(times, codes)
@@ -223,6 +242,22 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
     private fun fmt(v: Double): String = if (v.isNaN()) "—" else "${v.toInt()}°"
 
     private fun plainInt(v: Double): String = if (v.isNaN()) "—" else "${Math.round(v)}"
+
+    /** 明天的第二行：降水概率 + 和今天比冷暖，控制在两行之内 */
+    private fun subLine(i: Int, hi: Double, lo: Double, hi0: Double, pr: JSONArray?): String {
+        val parts = ArrayList<String>()
+        val p = pr?.optInt(i, -1) ?: -1
+        if (p in 0..99) parts.add(if (p <= 5) "基本不下雨" else "雨 $p%")
+        if (!hi.isNaN() && !hi0.isNaN()) {
+            val d = Math.round(hi).toInt() - Math.round(hi0).toInt()
+            when {
+                d >= 2 -> parts.add("比今天暖和 $d 度")
+                d <= -2 -> parts.add("比今天冷 ${-d} 度")
+                else -> parts.add("跟今天差不多")
+            }
+        }
+        return parts.joinToString("　")
+    }
 
     private fun label(i: Int): String = when (i) {
         0 -> "今天"

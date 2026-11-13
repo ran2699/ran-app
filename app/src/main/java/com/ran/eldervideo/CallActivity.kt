@@ -350,7 +350,7 @@ class CallActivity : Activity() {
         override fun onDraw(c: Canvas) {
             val p = paint
             p.style = Paint.Style.STROKE
-            p.strokeWidth = 6f * resources.displayMetrics.density
+            p.strokeWidth = 4.5f * resources.displayMetrics.density
             p.strokeJoin = Paint.Join.ROUND
             p.color = Color.WHITE
             super.onDraw(c)
@@ -414,8 +414,8 @@ class CallActivity : Activity() {
             when (reason) {
                 "missed" -> {
                     endTag.text = "电话没有打通"
-                    putStroked(endLine, "他没有接你的电话", 44f)
-                    putStroked(endHint, "你可以过一会再拨", 34f)
+                    putStroked(endLine, "他没有接你的电话", 46f)
+                    putStroked(endHint, "你可以过一会再拨", 36f)
                 }
                 "callerHangup" -> {
                     endTag.text = "电话结束了"
@@ -579,8 +579,8 @@ class CallActivity : Activity() {
                     endName.text = pn
                     endName.visibility = View.VISIBLE
                     endTag.text = "电话没有打通"
-                    putStroked(endLine, "他没有接你的电话", 44f)
-                    putStroked(endHint, "你可以过一会再拨", 34f)
+                    putStroked(endLine, "他没有接你的电话", 46f)
+                    putStroked(endHint, "你可以过一会再拨", 36f)
                     col.visibility = View.GONE
                     missedLayer.visibility = View.VISIBLE
                 }

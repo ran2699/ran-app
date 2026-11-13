@@ -72,6 +72,8 @@ class CallActivity : Activity() {
     private var speakerOn = false
     private var hungSelf = false
     private var screenSince = 0L
+    private var lastState = -999
+    private var lastStateAt = 0L
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -169,10 +171,14 @@ class CallActivity : Activity() {
         }
     }
 
-    /** 系统那边还有没有通话。Call 对象失效后 details 会停在旧状态，只能问系统 */
-    private fun systemInCall(): Boolean = try {
-        val tm = getSystemService(android.telephony.TelephonyManager::class.java)
-        tm.callState != android.telephony.TelephonyManager.CALL_STATE_IDLE
+    /** 系统那边还有没有通话。Call 对象失效后 details 会停在旧状态，只能问 Telecom。
+     *  不能用 TelephonyManager.callState —— 这台双卡机上通话中也会报 IDLE。 */
+    private fun telecomInCall(): Boolean = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            getSystemService(android.telecom.TelecomManager::class.java)?.isInCall ?: true
+        } else {
+            true
+        }
     } catch (t: Throwable) {
         true
     }
@@ -364,12 +370,6 @@ class CallActivity : Activity() {
         }
         shownOnce = true
 
-        // 对方先挂了，Telecom 有时只是把 Call 对象晾在那儿（state 停在 DIALING），
-        // 界面就卡在「正在打电话」。问系统有没有通话，没有就收尾。
-        if (System.currentTimeMillis() - screenSince > 3000 && !systemInCall()) {
-            if (outgoing && !everActive && !hungSelf) showMissed() else finishSafely()
-            return
-        }
 
         val st = try {
             call.details.state
@@ -387,6 +387,22 @@ class CallActivity : Activity() {
             } catch (t: Throwable) {
             }
         }
+        // 对方先挂了，Telecom 有时只是把 Call 对象晾在那儿（state 停在 DIALING / ACTIVE），
+        // 界面就卡住。状态超过阈值没变化、且系统那边确实没通话了，才收尾。
+        if (st != lastState) {
+            lastState = st
+            lastStateAt = System.currentTimeMillis()
+        }
+        val staleLimit = when (st) {
+            Call.STATE_ACTIVE -> 6000L
+            Call.STATE_DIALING, Call.STATE_CONNECTING -> 20000L
+            else -> Long.MAX_VALUE
+        }
+        if (System.currentTimeMillis() - lastStateAt > staleLimit && !telecomInCall()) {
+            if (outgoing && !everActive && !hungSelf) showMissed() else finishSafely()
+            return
+        }
+
         val name = CallBook.nameFor(number)
         val shown = if (name.isNotEmpty()) name else "陌生号码"
         numView.text = CallBook.pretty(number)

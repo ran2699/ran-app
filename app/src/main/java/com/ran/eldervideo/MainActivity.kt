@@ -94,6 +94,7 @@ class MainActivity : Activity() {
         }
         handler.post(ticker)
         ensureCallPermission()
+        Haptics.attach(window.decorView)
     }
 
     /** 拨号器角色换来的电话权限在 HyperOS 上不会真正落地，只能自己申请一次。

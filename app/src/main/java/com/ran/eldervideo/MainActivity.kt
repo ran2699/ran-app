@@ -724,15 +724,19 @@ class MainActivity : Activity() {
     }
 
     /** 充电中吗：读粘性广播，status=充电或已充满都算插着电 */
-    private fun isChargingNow(): Boolean = try {
-        val it = registerReceiver(
-            null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        ) ?: return false
-        val st = it.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1)
-        st == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
-                st == android.os.BatteryManager.BATTERY_STATUS_FULL
-    } catch (t: Throwable) {
-        false
+    private fun isChargingNow(): Boolean {
+        return try {
+            val it = registerReceiver(
+                null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            )
+            if (it == null) false else {
+                val st = it.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1)
+                st == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                        st == android.os.BatteryManager.BATTERY_STATUS_FULL
+            }
+        } catch (t: Throwable) {
+            false
+        }
     }
 
     private fun showFatal(t: Throwable) {

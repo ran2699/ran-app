@@ -141,9 +141,10 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         try {
-            if (intent?.getBooleanExtra("show_charge", false) == true &&
-                isChargingNow() && aodView == null
-            ) {
+            // --es 走 mExtras、--ez/putExtra 走 individual extras，两种传法都认
+            val flag = (intent?.getBooleanExtra("show_charge", false) == true) ||
+                    (intent?.extras?.getString("show_charge") == "true")
+            if (flag && isChargingNow() && aodView == null) {
                 blackOut()
             }
         } catch (t: Throwable) {

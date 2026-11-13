@@ -67,6 +67,7 @@ object Haptics {
 
     private fun isPressable(v: View): Boolean {
         if (v is BigCallButton) return false // 它自己在 onTouchEvent 里震，免得震两下
+        if (v is MechanicalButton) return false // 同上
         return try {
             v.hasOnClickListeners()
         } catch (t: Throwable) {

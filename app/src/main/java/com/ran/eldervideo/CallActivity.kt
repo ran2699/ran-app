@@ -103,6 +103,7 @@ class CallActivity : Activity() {
         previewNumber = intent?.getStringExtra("preview_number").orEmpty()
         previewState = intent?.getStringExtra("preview_state").orEmpty()
         screenSince = System.currentTimeMillis()
+        Log.i("ElderCall", "CallActivity onCreate preview=$preview previewState=$previewState")
         buildUi()
         setupImmersive()
         render()
@@ -171,14 +172,14 @@ class CallActivity : Activity() {
         }
     }
 
-    /** 系统那边还有没有通话。Call 对象失效后 details 会停在旧状态，只能问 Telecom。
-     *  不能用 TelephonyManager.callState —— 这台双卡机上通话中也会报 IDLE。 */
-    private fun telecomInCall(): Boolean = try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            getSystemService(android.telecom.TelecomManager::class.java)?.isInCall ?: true
-        } else {
-            true
-        }
+    /** 音频是不是还在通话模式。挂断后系统会把它切回 NORMAL，
+     *  这个信号不挑权限，比 TelecomManager.isInCall 在 MIUI 上可靠
+     *  （后者对我们这种第三方拨号器会直接返回 false）。 */
+    private fun audioInCall(): Boolean = try {
+        val am = getSystemService(AudioManager::class.java)
+        am.mode == AudioManager.MODE_IN_CALL ||
+            am.mode == AudioManager.MODE_IN_COMMUNICATION ||
+            am.mode == AudioManager.MODE_RINGTONE
     } catch (t: Throwable) {
         true
     }
@@ -388,18 +389,23 @@ class CallActivity : Activity() {
             }
         }
         // 对方先挂了，Telecom 有时只是把 Call 对象晾在那儿（state 停在 DIALING / ACTIVE），
-        // 界面就卡住。状态超过阈值没变化、且系统那边确实没通话了，才收尾。
+        // 界面就卡住。只看「状态多久没变」+「音频还在不在通话模式」这两个信号：
+        //   已接通：8 秒没变且音频已退出通话 → 收尾
+        //   拨号中：60 秒还没接通 → 当作没接上，弹提示页
         if (st != lastState) {
             lastState = st
             lastStateAt = System.currentTimeMillis()
+            Log.i("ElderCall", "state=$st outgoing=$outgoing active=$everActive")
         }
-        val staleLimit = when (st) {
-            Call.STATE_ACTIVE -> 6000L
-            Call.STATE_DIALING, Call.STATE_CONNECTING -> 20000L
-            else -> Long.MAX_VALUE
+        val idleMs = System.currentTimeMillis() - lastStateAt
+        if (st == Call.STATE_ACTIVE && idleMs > 8000 && !audioInCall()) {
+            Log.i("ElderCall", "已接通但音频已退出通话，收尾")
+            finishSafely()
+            return
         }
-        if (System.currentTimeMillis() - lastStateAt > staleLimit && !telecomInCall()) {
-            if (outgoing && !everActive && !hungSelf) showMissed() else finishSafely()
+        if ((st == Call.STATE_DIALING || st == Call.STATE_CONNECTING) && idleMs > 60000) {
+            Log.i("ElderCall", "拨号 60 秒仍未接通，当作没接上")
+            showMissed()
             return
         }
 
@@ -549,6 +555,7 @@ class CallActivity : Activity() {
     }
 
     private fun finishSafely() {
+        Log.i("ElderCall", "关闭通话界面 outgoing=$outgoing active=$everActive hungSelf=$hungSelf state=$lastState")
         handler.removeCallbacks(ticker)
         stopRing()
         try {

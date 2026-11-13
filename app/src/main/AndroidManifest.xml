@@ -49,7 +49,7 @@
         <!-- 自绘来电/通话界面，全屏、锁屏上也显示 -->
         <activity
             android:name="com.ran.eldervideo.CallActivity"
-            android:exported="false"
+            android:exported="true"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
             android:screenOrientation="portrait"

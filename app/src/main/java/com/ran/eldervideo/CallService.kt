@@ -78,9 +78,19 @@ class CallService : InCallService() {
 
 /** 预存号码表。老人只认名字，所以来电时优先显示名字。 */
 object CallBook {
-    private val names = mapOf(
-        "18712961913" to "王敬然"
+
+    /** 顺序就是界面上按钮的顺序（一排两个） */
+    val contacts: List<Pair<String, String>> = listOf(
+        "李存有" to "13703188618",
+        "李存浩" to "13131867705",
+        "李存岩" to "13131814115",
+        "李存满" to "15030195319",
+        "王敬然" to "18712961913",
+        "李达" to "18603394730"
     )
+
+    private val byNumber: Map<String, String> =
+        contacts.associate { (name, number) -> number to name }
 
     private fun digits(raw: String?): String =
         (raw ?: "").filter { it.isDigit() }
@@ -89,7 +99,7 @@ object CallBook {
         val d = digits(raw)
         if (d.isEmpty()) return ""
         val tail = if (d.length > 11) d.substring(d.length - 11) else d
-        return names[tail] ?: names[d] ?: ""
+        return byNumber[tail] ?: byNumber[d] ?: ""
     }
 
     /** 138 0013 8000 这种分组，老人念得出来 */

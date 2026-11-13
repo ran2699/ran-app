@@ -53,7 +53,6 @@
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
             android:screenOrientation="portrait"
-            android:showOnLockScreen="true"
             android:theme="@android:style/Theme.Material.NoActionBar" />
 
         <!-- 极简拨号页：成为默认电话应用后，ACTION_DIAL 会落到这里 -->

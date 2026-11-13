@@ -158,13 +158,12 @@ class ChargeActivity : Activity() {
         }
         topText.text = "正在充电中…"
 
-        // 系统给的剩余时间（毫秒），小米上常为 -1
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val ms = intent.getLongExtra(BatteryManager.EXTRA_CHARGING_TIME, -1L)
-            if (ms > 0) {
-                bottomText.text = "还有 ${ceil(ms / 60000.0).toInt()} 分钟充满"
-                return
-            }
+        // 系统给的剩余时间（毫秒）。这个 extra 没有公开常量（@hide），
+        // 直接按字符串键读，读不到就走下面的自测推算。
+        val ms = intent.getLongExtra("android.os.extra.CHARGING_TIME", -1L)
+        if (ms > 0) {
+            bottomText.text = "还有 ${ceil(ms / 60000.0).toInt()} 分钟充满"
+            return
         }
 
         // 自己推算：保留 15 分钟内的采样点

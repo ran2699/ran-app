@@ -210,7 +210,8 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
                 val hi = tmax.optDouble(i, Double.NaN)
                 val lo = tmin.optDouble(i, Double.NaN)
                 // 主行：明天　多云　4～17 度
-                val head = "${label(i)}　${codeText(codes.optInt(i, 0))}　" +
+                // 「晴天」不写「是」，省一个字，最高/最低能在一行里放下
+                val head = "${label(i)}　${codeText(codes.optInt(i, 0)).removePrefix("是")}　" +
                         "最高 ${plainInt(hi)} 度 最低 ${plainInt(lo)} 度"
                 // 副行：雨 20%　比今天冷 3 度（灰字小一号）
                 val sub = subLine(i, hi, lo, hi0, prArr)

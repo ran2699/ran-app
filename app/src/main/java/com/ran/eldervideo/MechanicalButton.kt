@@ -86,6 +86,8 @@ class MechanicalButton @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 pressed = true
                 animateTo(1f)
+                // 桌面上的每一枚键都是这个控件，震动在这里统一给，别再漏
+                Haptics.heavy(context)
                 return true
             }
             MotionEvent.ACTION_UP -> {

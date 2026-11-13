@@ -30,7 +30,6 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
 
     private val todayText: TextView
     private val descText: TextView
-    private val rowToday: TextView
     private val rowTomorrow: TextView
     private val rowAfter: TextView
     private lateinit var content: LinearLayout
@@ -47,7 +46,7 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
         }
         content = LinearLayout(context).apply {
             orientation = VERTICAL
-            setPadding(dp(24), dp(46), dp(24), dp(220))
+            setPadding(dp(24), dp(34), dp(24), dp(188))
         }
         scroll.addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
@@ -65,25 +64,24 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
 
         content.addView(tv(CITY, 40f, Color.WHITE, Typeface.BOLD), lp())
 
-        todayText = tv("—", 130f, Color.WHITE, Typeface.BOLD)
+        todayText = tv("—", 108f, Color.WHITE, Typeface.BOLD)
         content.addView(todayText, lp(top = 10))
-        descText = tv("正在看天气…", 34f, Color.parseColor("#CFD8DC"), Typeface.NORMAL)
+        descText = tv("正在看天气…", 30f, Color.parseColor("#CFD8DC"), Typeface.NORMAL)
         content.addView(descText, lp(top = 2))
 
         val divider = LinearLayout(context).apply {
             setBackgroundColor(Color.parseColor("#2A2F36"))
         }
         content.addView(divider, LinearLayout.LayoutParams(-1, dp(2)).apply {
-            topMargin = dp(20)
-            bottomMargin = dp(18)
+            topMargin = dp(14)
+            bottomMargin = dp(10)
         })
 
-        rowToday = tv("今天", 30f, Color.WHITE, Typeface.BOLD)
+        // 今天的信息在上面 descText 里已经有了，这里只列明天/后天，避免"今天"写两遍
         rowTomorrow = tv("明天", 30f, Color.WHITE, Typeface.BOLD)
         rowAfter = tv("后天", 30f, Color.WHITE, Typeface.BOLD)
-        content.addView(rowToday, lp(top = 6))
-        content.addView(rowTomorrow, lp(top = 14))
-        content.addView(rowAfter, lp(top = 14))
+        content.addView(rowTomorrow, lp(top = 6))
+        content.addView(rowAfter, lp(top = 10))
 
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
@@ -92,17 +90,17 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
                 setStroke(dp(2), Color.parseColor("#39424D"))
                 cornerRadius = dp(14).toFloat()
             }
-            setPadding(dp(18), dp(18), dp(18), dp(18))
+            setPadding(dp(14), dp(14), dp(14), dp(14))
         }
-        verdict = tv("…", 28f, Color.parseColor("#FFD54F"), Typeface.BOLD).apply {
+        verdict = tv("…", 26f, Color.parseColor("#FFD54F"), Typeface.BOLD).apply {
             isSingleLine = false
             maxLines = 6
         }
         box.addView(verdict, LinearLayout.LayoutParams(-1, -2))
-        content.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+        content.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
 
         status = tv("", 20f, Color.parseColor("#8D9AA5"), Typeface.NORMAL)
-        content.addView(status, lp(top = 14))
+        content.addView(status, lp(top = 10))
 
         // 底部给右下角返回键留位置
         content.addView(LinearLayout(context), LinearLayout.LayoutParams(-1, dp(20)))
@@ -202,20 +200,18 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
                     "，最高 " + plainInt(hi0) + " 度，最低 " + plainInt(lo0) + " 度。"
 
             val sb = StringBuilder()
-            for (i in 0 until 3) {
+            for (i in 1 until 3) {
                 if (i >= times.length()) break
                 val hi = tmax.optDouble(i, Double.NaN)
                 val lo = tmin.optDouble(i, Double.NaN)
                 val line = "${label(i)}　${codeText(codes.optInt(i, 0))}　" +
                         "最高 ${plainInt(hi)} 度，最低 ${plainInt(lo)} 度"
                 when (i) {
-                    0 -> rowToday.text = line
                     1 -> rowTomorrow.text = line
                     2 -> rowAfter.text = line
                 }
                 sb.append(line)
             }
-            rowToday.text = rowToday.text.toString().let { if (it == "今天") "今天" else it }
 
             verdict.text = buildVerdict(times, codes)
             status.text = "更新于 " + SimpleDateFormat("HH:mm", Locale.CHINA).format(Date()) + " · " + CITY

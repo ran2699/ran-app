@@ -82,6 +82,7 @@ class MainActivity : Activity() {
     private var aodChargeSub: TextView? = null
     private var aodChargingShown = false
     private var lastCharging = false
+    private var chargingSeenOnce = false
     private var chargingLockReadyAt = 0L
     // 剩余时间自估：记最近 16 分钟的 (时间,电量) 采样
     private val chargeSamples = ArrayList<Pair<Long, Int>>()
@@ -854,21 +855,28 @@ class MainActivity : Activity() {
         // 充电状态跳变兜底：HyperOS 可能不发 POWER_CONNECTED/DISCONNECTED
         // （1.0.35 实测：reset 造出真实插线事件后动态接收器毫无日志），
         // 但 BATTERY_CHANGED 一定发——5 秒一跳也能接上。
+        // 关键：isChargingNow() 冷启动第一读常是 false（BatteryManager 还没缓存到），
+        // 单帧跳变会误判"刚插上"（1.0.36~38 三轮实测都栽在这）。
+        // 改成连续两帧都看到充电才认定跳变——真插线最多多等 5 秒，误判归零。
         if (charging != lastCharging) {
-            Log.i("ElderUI", "charging transition $lastCharging -> $charging ready=${System.currentTimeMillis() > chargingLockReadyAt}")
-            lastCharging = charging
-            battery.charging = charging
-            if (charging) {
-                // 启动 3 秒内的"假跳变"只对齐状态，不弹屏
-                if (System.currentTimeMillis() > chargingLockReadyAt) {
-                    if (aodView == null) blackOut() else applyAodMode()
-                } else if (aodView != null) {
-                    applyAodMode()
-                }
-            } else {
+            if (charging && chargingSeenOnce) {
+                Log.i("ElderUI", "charging transition confirmed $lastCharging -> $charging")
+                lastCharging = true
+                chargingSeenOnce = false
+                battery.charging = true
+                if (aodView == null) blackOut() else applyAodMode()
+            } else if (!charging) {
+                Log.i("ElderUI", "charging transition $lastCharging -> false")
+                chargingSeenOnce = false
+                lastCharging = false
+                battery.charging = false
                 applyAodMode()
+            } else {
+                chargingSeenOnce = true
+                battery.charging = true   // 图标先亮，锁屏等第二帧确认
             }
         } else {
+            if (!charging) chargingSeenOnce = false
             battery.charging = charging
         }
         dateText.text = "$md  $wk"

@@ -134,6 +134,7 @@ class BigCallButton(
             MotionEvent.ACTION_DOWN -> {
                 pressed = true
                 invalidate()
+                Haptics.heavy(context)
             }
             MotionEvent.ACTION_UP -> {
                 pressed = false

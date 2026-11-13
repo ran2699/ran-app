@@ -244,7 +244,7 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
     private fun plainInt(v: Double): String = if (v.isNaN()) "—" else "${Math.round(v)}"
 
     /** 明天的第二行：降水概率 + 和今天比冷暖，控制在两行之内 */
-    private fun subLine(i: Int, hi: Double, lo: Double, hi0: Double, pr: JSONArray?): String {
+    private fun subLine(i: Int, hi: Double, hi0: Double, pr: JSONArray?): String {
         val parts = ArrayList<String>()
         val p = pr?.optInt(i, -1) ?: -1
         if (p in 0..99) parts.add(if (p <= 5) "基本不下雨" else "雨 $p%")

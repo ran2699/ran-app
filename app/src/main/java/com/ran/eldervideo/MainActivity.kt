@@ -106,6 +106,21 @@ class MainActivity : Activity() {
         } catch (t: Throwable) {
             showFatal(t)
         }
+        // 冷启动带 show_charge（BootReceiver 插电拉起）：直接进充电锁屏，消费后清掉
+        try {
+            val i0 = intent
+            val flag0 = (i0?.getBooleanExtra("show_charge", false) == true) ||
+                    (i0?.extras?.getString("show_charge") == "true")
+            if (flag0) {
+                setIntent(Intent(this, MainActivity::class.java))
+                if (runCatching { isChargingNow() }.getOrDefault(false)) {
+                    lastCharging = true
+                    battery.charging = true
+                    blackOut()
+                }
+            }
+        } catch (t: Throwable) {
+        }
         // 冷启动第一下 isChargingNow() 常常拿不到 BatteryManager 缓存返回 false，
         // 5 秒后轮询"发现"在充电就会误判成刚插上（1.0.36 实测 A 场景弹了锁屏）。
         // 改成：启动后 3 秒内不做跳变弹屏，只静默对齐状态。
@@ -153,8 +168,12 @@ class MainActivity : Activity() {
             // --es 走 mExtras、--ez/putExtra 走 individual extras，两种传法都认
             val flag = (intent?.getBooleanExtra("show_charge", false) == true) ||
                     (intent?.extras?.getString("show_charge") == "true")
-            if (flag && isChargingNow() && aodView == null) {
-                blackOut()
+            if (flag) {
+                // 一次性消费：1.0.36 实测这个 extra 会存进任务栈 base intent，
+                // 之后每次 force-stop/重建都重新投递——冷启动"永远在充电锁屏"。
+                // 消费后立刻把 intent 换成干净的。
+                setIntent(Intent(this, MainActivity::class.java))
+                if (isChargingNow() && aodView == null) blackOut()
             }
         } catch (t: Throwable) {
         }

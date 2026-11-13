@@ -188,26 +188,22 @@ class DialActivity : Activity() {
     private fun showConfirm(name: String, number: String) {
         val col = column(130, 70, 34)
 
-        val text = SpannableString("你是不是要给" + name + "打去电话")
-        val start = 6
-        val end = start + name.length
-        text.setSpan(ForegroundColorSpan(Color.parseColor("#FFD54F")), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        text.setSpan(RelativeSizeSpan(1.25f), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-
+        // 名字单独一行：字号最大、颜色最亮，绝不被折行拆开
         col.addView(
-            TextView(this).apply {
-                this.text = text
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 46f)
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                maxLines = 3
-            },
+            label("你是不是要给", 44f, Color.WHITE, true),
             LinearLayout.LayoutParams(-1, -2)
         )
         col.addView(
-            label(CallBook.pretty(number), 34f, Color.parseColor("#CFD8DC"), false),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) }
+            label(name, 68f, Color.parseColor("#FFD54F"), true),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) }
+        )
+        col.addView(
+            label("打去电话", 44f, Color.WHITE, true),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) }
+        )
+        col.addView(
+            label(CallBook.pretty(number), 32f, Color.parseColor("#CFD8DC"), false),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(18) }
         )
         col.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
 

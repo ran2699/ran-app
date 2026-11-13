@@ -127,25 +127,42 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
     // ---------------- 数据 ----------------
     private fun load() {
         Thread {
+            // ① 当天已经取到过：直接渲染缓存，一次网络都不发
+            val cached = WeatherRepo.cachedToday(context)
+            if (cached != null) {
+                post {
+                    render(cached)
+                    status.text = "今天已更新过 · " + WeatherRepo.savedAt(context) +
+                            " · 同一天不再联网 · " + CITY
+                }
+                return@Thread
+            }
+
+            // ② 联网：国内源优先，逐级兜底
             var body: String? = null
             var err: String? = null
             try {
-                val url = URL(
-                    "https://api.open-meteo.com/v1/forecast?latitude=$LAT&longitude=$LON" +
-                            "&current=temperature_2m,weather_code" +
-                            "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
-                            "&timezone=Asia%2FShanghai&forecast_days=7"
-                )
-                val conn = url.openConnection() as HttpURLConnection
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
-                conn.requestMethod = "GET"
-                body = conn.inputStream.bufferedReader().use { it.readText() }
-                conn.disconnect()
+                body = WeatherRepo.fetchOnline(context)
             } catch (t: Throwable) {
                 err = t.message
             }
-            post { if (body != null) render(body) else fail(err) }
+
+            val got = body
+            post {
+                if (got != null) {
+                    render(got)
+                    status.text = "更新于 " + WeatherRepo.savedAt(context) + " · " + CITY
+                } else {
+                    // ③ 三个源都没通：有旧数据就先给旧的，别让人看见一片空白
+                    val old = WeatherRepo.lastAny(context)
+                    if (old != null) {
+                        render(old)
+                        status.text = "现在连不上，先看上次的天气 · " + WeatherRepo.savedAt(context)
+                    } else {
+                        fail(err)
+                    }
+                }
+            }
         }.start()
     }
 
@@ -220,16 +237,18 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
     }
 
     private fun buildVerdict(times: org.json.JSONArray, codes: org.json.JSONArray): String {
+        // 天数按实际拿到的算：国内源给 5 天，open-meteo 给 7 天，不能写死
+        val n = minOf(codes.length(), 7)
         val bad = mutableListOf<String>()
-        for (i in 0 until minOf(codes.length(), 7)) {
+        for (i in 0 until n) {
             val c = codes.optInt(i, 0)
             when {
                 isSnow(c) -> bad.add(label(i) + "下雪")
                 isRain(c) -> bad.add(label(i) + "下雨")
             }
         }
-        return if (bad.isEmpty()) "未来 7 天都是好天，不下雨也不下雪，放心出门。"
-        else "未来 7 天里：" + bad.joinToString("，") + "。"
+        return if (bad.isEmpty()) "未来 $n 天都是好天，不下雨也不下雪，放心出门。"
+        else "未来 $n 天里：" + bad.joinToString("，") + "。"
     }
 
     private fun isRain(c: Int): Boolean =

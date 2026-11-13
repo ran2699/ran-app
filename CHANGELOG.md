@@ -6,6 +6,27 @@
 
 ---
 
+## 1.0.31 — 2026-11-13
+
+### 挂断后没有结束页（本次核心）
+- 根因：结束页靠"通话结束那一刻 Telecom 给的 Call 状态"判断。这台 HyperOS 上通话结束时
+  `state` 会停在 DIALING、`callDirection` 可能报 UNKNOWN、`onCallRemoved` 又常常早于
+  DISCONNECTED 到达——三个信号任何一个是错的，界面就会当成"自己挂的"直接退出。
+- 改：新增 `CallLedger` 账本。`DialActivity` 拨号那一刻开始记账，`InCallService` 在能拿到
+  状态的第一时间（ACTIVE / DISCONNECTED / onCallRemoved）往里写，界面只按账本显示。
+- 结束页覆盖四种情形：
+  没接上 → 红字白边「他没有接你的电话 / 你可以过一会再拨」；
+  接过话 → 白字「电话已经挂断了」；自己按挂断 → 同一张白字页（不再直接回桌面）；
+  别人打来又挂断 → 「XX 挂断了电话 / 你可以给他打回去」。
+- 拨出后 20 秒（原 60 秒）仍未接通即判没接上，不用干等一分钟。
+
+### 界面兜底
+- `InCallService` 里 startActivity 被系统后台弹出限制吞掉时，补一条 Category=CALL 的
+  fullScreenIntent 通知作为第二条唤起路径。
+- 通话结束时 CallActivity 若已被系统回收，由 CallService 重新拉起结束页。
+
+---
+
 ## 1.0.30 — 2026-11-13
 
 - `TelecomManager.isInCall` 在 MIUI 上对第三方拨号器返回 false，导致 10086 正常通话时界面被误关

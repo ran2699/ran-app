@@ -82,6 +82,7 @@ class MainActivity : Activity() {
     private var aodChargeSub: TextView? = null
     private var aodChargingShown = false
     private var lastCharging = false
+    private var chargingLockReadyAt = 0L
     // 剩余时间自估：记最近 16 分钟的 (时间,电量) 采样
     private val chargeSamples = ArrayList<Pair<Long, Int>>()
     private val aodTicker = object : Runnable {
@@ -105,9 +106,12 @@ class MainActivity : Activity() {
         } catch (t: Throwable) {
             showFatal(t)
         }
-        // 启动时就插着电不算"刚插上"，别一打开就弹充电锁屏
+        // 冷启动第一下 isChargingNow() 常常拿不到 BatteryManager 缓存返回 false，
+        // 5 秒后轮询"发现"在充电就会误判成刚插上（1.0.36 实测 A 场景弹了锁屏）。
+        // 改成：启动后 3 秒内不做跳变弹屏，只静默对齐状态。
         lastCharging = try { isChargingNow() } catch (t: Throwable) { false }
         battery.charging = lastCharging
+        chargingLockReadyAt = System.currentTimeMillis() + 3000L
         handler.post(ticker)
         ensureCallPermission()
         ensureDefaultHome()
@@ -218,6 +222,13 @@ class MainActivity : Activity() {
             refreshClock()
             refreshHint()
             if (aodView != null) applyAodMode()
+            // 后台期间插拔过，回前台静默对齐（不弹屏）
+            val cNow = try { isChargingNow() } catch (t: Throwable) { lastCharging }
+            if (cNow != lastCharging) {
+                lastCharging = cNow
+                battery.charging = cNow
+                if (aodView != null) applyAodMode()
+            }
         } catch (t: Throwable) {
         }
         setupImmersive()
@@ -825,11 +836,16 @@ class MainActivity : Activity() {
         // （1.0.35 实测：reset 造出真实插线事件后动态接收器毫无日志），
         // 但 BATTERY_CHANGED 一定发——5 秒一跳也能接上。
         if (charging != lastCharging) {
-            Log.i("ElderUI", "charging transition $lastCharging -> $charging")
+            Log.i("ElderUI", "charging transition $lastCharging -> $charging ready=${System.currentTimeMillis() > chargingLockReadyAt}")
             lastCharging = charging
             battery.charging = charging
             if (charging) {
-                if (aodView == null) blackOut() else applyAodMode()
+                // 启动 3 秒内的"假跳变"只对齐状态，不弹屏
+                if (System.currentTimeMillis() > chargingLockReadyAt) {
+                    if (aodView == null) blackOut() else applyAodMode()
+                } else if (aodView != null) {
+                    applyAodMode()
+                }
             } else {
                 applyAodMode()
             }

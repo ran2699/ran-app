@@ -6,6 +6,7 @@ import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.media.Ringtone
@@ -22,24 +23,27 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.WindowManager
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
  * 自绘的来电 / 通话界面。系统来电界面不会出现（本应用是默认电话应用）。
- * 上面超大写着谁打来的，下面两个大圆角矩形：左红「挂电话」、右绿「接电话」。
- * 接通之后绿键收起，红键撑满一行，用来挂断。
+ * 大字：王敬然 给你打来了电话
+ * 小字：点一下绿色的按钮接电话
+ * 下面两个大圆角矩形：左红「挂电话」、右绿「接电话」。
  */
 class CallActivity : Activity() {
 
     private lateinit var tagView: TextView
     private lateinit var nameView: TextView
+    private lateinit var lineView: TextView
     private lateinit var numView: TextView
     private lateinit var stateView: TextView
+    private lateinit var hintView: TextView
     private lateinit var hangBtn: BigCallButton
     private lateinit var answerBtn: BigCallButton
 
@@ -49,6 +53,8 @@ class CallActivity : Activity() {
     private var connectAt = 0L
     private var ringing = false
     private var preview = false
+    private var previewName = ""
+    private var previewNumber = ""
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -74,12 +80,13 @@ class CallActivity : Activity() {
             setTurnScreenOn(true)
         }
         preview = intent?.getBooleanExtra("preview", false) ?: false
+        previewName = intent?.getStringExtra("preview_name").orEmpty()
+        previewNumber = intent?.getStringExtra("preview_number").orEmpty()
         buildUi()
         setupImmersive()
         render()
         handler.post(ticker)
     }
-
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
@@ -128,66 +135,90 @@ class CallActivity : Activity() {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(22), dp(96), dp(22), dp(28))
+            setPadding(dp(22), dp(80), dp(22), dp(30))
         }
 
         tagView = TextView(this).apply {
             text = "来电"
             setTextColor(Color.parseColor("#9AA5B1"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
             gravity = Gravity.CENTER
         }
         col.addView(tagView, LinearLayout.LayoutParams(-1, -2))
 
         nameView = TextView(this).apply {
             text = "—"
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 80f)
+            setTextColor(Color.parseColor("#FFD54F"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 96f)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             maxLines = 2
         }
-        col.addView(nameView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(26) })
+        col.addView(nameView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
+
+        lineView = TextView(this).apply {
+            text = "给你打来了电话"
+            setTextColor(Color.parseColor("#FFD54F"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 52f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            maxLines = 2
+        }
+        col.addView(lineView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         numView = TextView(this).apply {
+            text = ""
+            setTextColor(Color.parseColor("#CFD8DC"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
+            gravity = Gravity.CENTER
+        }
+        col.addView(numView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+
+        stateView = TextView(this).apply {
             text = ""
             setTextColor(Color.parseColor("#CFD8DC"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f)
             gravity = Gravity.CENTER
         }
-        col.addView(numView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        col.addView(stateView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
-        stateView = TextView(this).apply {
-            text = ""
-            setTextColor(Color.parseColor("#8D9AA5"))
+        hintView = TextView(this).apply {
+            text = "点一下绿色的按钮接电话"
+            setTextColor(Color.parseColor("#7BD88F"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
             gravity = Gravity.CENTER
+            maxLines = 2
         }
-        col.addView(stateView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+        col.addView(hintView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
 
         col.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
 
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
 
-        hangBtn = BigCallButton(this, "挂电话", Color.parseColor("#C62828"), Color.parseColor("#6E0A0A"), true)
+        hangBtn = BigCallButton(this, "挂电话", Color.parseColor("#C62828"), Color.parseColor("#6E0A0A"), BigCallButton.ICON_HANG)
         hangBtn.setOnPressListener { CallService.endCall() }
-        answerBtn = BigCallButton(this, "接电话", Color.parseColor("#2E9E4F"), Color.parseColor("#14501F"), false)
+        answerBtn = BigCallButton(this, "接电话", Color.parseColor("#2E9E4F"), Color.parseColor("#14501F"), BigCallButton.ICON_ANSWER)
         answerBtn.setOnPressListener { CallService.acceptCall() }
 
-        row.addView(hangBtn, LinearLayout.LayoutParams(0, dp(196), 1f).apply { rightMargin = dp(10) })
-        row.addView(answerBtn, LinearLayout.LayoutParams(0, dp(196), 1f).apply { leftMargin = dp(10) })
-        col.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(36) })
+        row.addView(hangBtn, LinearLayout.LayoutParams(0, dp(200), 1f).apply { rightMargin = dp(10) })
+        row.addView(answerBtn, LinearLayout.LayoutParams(0, dp(200), 1f).apply { leftMargin = dp(10) })
+        col.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(34) })
 
         root.addView(col, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
     }
 
     private fun render() {
-        if (preview) {
+        if (preview && CallService.current == null) {
             tagView.text = "来电"
-            nameView.text = "王敬然"
-            numView.text = "187 1296 1913"
+            nameView.text = if (previewName.isNotEmpty()) previewName else "李存有"
+            lineView.text = "给你打来了电话"
+            lineView.visibility = View.VISIBLE
+            numView.text = CallBook.pretty(if (previewNumber.isNotEmpty()) previewNumber else "13703188618")
+            numView.visibility = View.VISIBLE
             stateView.text = ""
+            hintView.text = "点一下绿色的按钮接电话"
+            hintView.visibility = View.VISIBLE
             answerBtn.visibility = View.VISIBLE
             return
         }
@@ -209,22 +240,33 @@ class CallActivity : Activity() {
         val name = CallBook.nameFor(number)
         nameView.text = if (name.isNotEmpty()) name else "陌生号码"
         numView.text = CallBook.pretty(number)
+        numView.visibility = View.VISIBLE
 
         when (st) {
             Call.STATE_RINGING -> {
                 tagView.text = "来电"
+                lineView.text = "给你打来了电话"
+                lineView.visibility = View.VISIBLE
                 stateView.text = ""
+                hintView.text = "点一下绿色的按钮接电话"
+                hintView.visibility = View.VISIBLE
                 answerBtn.visibility = View.VISIBLE
                 startRing()
             }
             Call.STATE_DIALING, Call.STATE_CONNECTING -> {
-                tagView.text = "正在拨打"
+                tagView.text = ""
+                lineView.text = "正在给你拨号…"
+                lineView.visibility = View.VISIBLE
                 stateView.text = ""
+                hintView.visibility = View.GONE
                 answerBtn.visibility = View.GONE
                 stopRing()
             }
             Call.STATE_ACTIVE -> {
-                tagView.text = "通话中"
+                tagView.text = ""
+                lineView.text = "通话中"
+                lineView.visibility = View.VISIBLE
+                hintView.visibility = View.GONE
                 answerBtn.visibility = View.GONE
                 stopRing()
                 if (connectAt == 0L) connectAt = System.currentTimeMillis()
@@ -298,16 +340,24 @@ class CallActivity : Activity() {
 }
 
 /**
- * 大圆角矩形按钮：先画一层深色投影再画正面，按下去正面会沉下去，
- * 和桌面上那套机械键是同一个手感。图标是手绘的听筒——挂断的转 135°。
+ * 大圆角矩形按钮：先画一层深色投影再画正面，按下去正面会沉一下，
+ * 和桌面上那套机械键同一个手感。图标是手绘的，四种：接听、挂断、对勾、叉。
  */
 class BigCallButton(
     ctx: Context,
     private val label: String,
     private val face: Int,
     private val dark: Int,
-    private val hangUp: Boolean
+    private val icon: Int
 ) : View(ctx) {
+
+    companion object {
+        const val ICON_ANSWER = 0
+        const val ICON_HANG = 1
+        const val ICON_TICK = 2
+        const val ICON_CROSS = 3
+        const val ICON_NONE = 4
+    }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -318,15 +368,14 @@ class BigCallButton(
     private var pressed = false
     private var onPress: (() -> Unit)? = null
 
+    var textSizeSp: Float = 38f
+    var iconSizeDp: Float = 78f
+
     fun setOnPressListener(f: () -> Unit) {
         onPress = f
     }
 
     private fun dp(v: Float): Float = v * resources.displayMetrics.density
-
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-    }
 
     override fun onDraw(c: Canvas) {
         val w = width.toFloat()
@@ -342,22 +391,34 @@ class BigCallButton(
         paint.color = face
         c.drawRoundRect(RectF(0f, sink, w, h - off + sink), rad, rad, paint)
 
-        val faceBottom = h - off + sink
-        val iconCy = sink + faceBottom * 0.33f
-        drawHandset(c, w / 2f, iconCy, dp(78f))
+        val bottom = h - off + sink
+        textPaint.textSize = dp(textSizeSp)
 
-        textPaint.textSize = dp(38f)
-        c.drawText(label, w / 2f, sink + faceBottom * 0.80f, textPaint)
+        if (icon == ICON_NONE) {
+            val ty = sink + (bottom - sink) / 2f - (textPaint.ascent() + textPaint.descent()) / 2f
+            c.drawText(label, w / 2f, ty, textPaint)
+        } else {
+            drawIcon(c, w / 2f, sink + bottom * 0.32f, dp(iconSizeDp))
+            c.drawText(label, w / 2f, sink + bottom * 0.80f, textPaint)
+        }
     }
 
-    private fun drawHandset(c: Canvas, cx: Float, cy: Float, size: Float) {
+    private fun drawIcon(c: Canvas, cx: Float, cy: Float, size: Float) {
+        when (icon) {
+            ICON_ANSWER, ICON_HANG -> drawHandset(c, cx, cy, size, icon == ICON_HANG)
+            ICON_TICK -> drawTick(c, cx, cy, size)
+            ICON_CROSS -> drawCross(c, cx, cy, size)
+        }
+    }
+
+    private fun drawHandset(c: Canvas, cx: Float, cy: Float, size: Float, hang: Boolean) {
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = size * 0.22f
         paint.strokeCap = Paint.Cap.ROUND
         paint.color = Color.WHITE
 
         c.save()
-        c.rotate(if (hangUp) 135f else -45f, cx, cy)
+        c.rotate(if (hang) 135f else -45f, cx, cy)
         val r = size * 0.40f
         val rect = RectF(cx - r, cy - r, cx + r, cy + r)
         c.drawArc(rect, 200f, 140f, false, paint)
@@ -366,12 +427,35 @@ class BigCallButton(
         paint.style = Paint.Style.FILL
         val dot = paint.strokeWidth * 0.62f
         c.save()
-        c.rotate(if (hangUp) 135f else -45f, cx, cy)
+        c.rotate(if (hang) 135f else -45f, cx, cy)
         val a = Math.toRadians(200.0)
         val b = Math.toRadians(340.0)
         c.drawCircle(cx + (r * Math.cos(a)).toFloat(), cy + (r * Math.sin(a)).toFloat(), dot, paint)
         c.drawCircle(cx + (r * Math.cos(b)).toFloat(), cy + (r * Math.sin(b)).toFloat(), dot, paint)
         c.restore()
+    }
+
+    private fun drawTick(c: Canvas, cx: Float, cy: Float, size: Float) {
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = size * 0.24f
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeJoin = Paint.Join.ROUND
+        paint.color = Color.WHITE
+        val p = Path()
+        p.moveTo(cx - size * 0.42f, cy + size * 0.02f)
+        p.lineTo(cx - size * 0.10f, cy + size * 0.34f)
+        p.lineTo(cx + size * 0.44f, cy - size * 0.34f)
+        c.drawPath(p, paint)
+    }
+
+    private fun drawCross(c: Canvas, cx: Float, cy: Float, size: Float) {
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = size * 0.24f
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.color = Color.WHITE
+        val s = size * 0.34f
+        c.drawLine(cx - s, cy - s, cx + s, cy + s, paint)
+        c.drawLine(cx - s, cy + s, cx + s, cy - s, paint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {

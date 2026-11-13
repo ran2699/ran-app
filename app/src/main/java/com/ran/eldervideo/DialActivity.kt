@@ -237,6 +237,8 @@ class DialActivity : Activity() {
     }
 
     private fun placeCall(digits: String) {
+        // 拨出去的那一刻就记账：这通电话是"我们打的"，后面结束页靠它判断
+        CallLedger.beginOutgoing(digits)
         try {
             startActivity(
                 Intent(Intent.ACTION_CALL, Uri.parse("tel:" + digits))

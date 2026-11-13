@@ -81,6 +81,7 @@ class MainActivity : Activity() {
     private var aodChargeTitle: TextView? = null
     private var aodChargeSub: TextView? = null
     private var aodChargingShown = false
+    private var lastCharging = false
     // 剩余时间自估：记最近 16 分钟的 (时间,电量) 采样
     private val chargeSamples = ArrayList<Pair<Long, Int>>()
     private val aodTicker = object : Runnable {
@@ -104,6 +105,9 @@ class MainActivity : Activity() {
         } catch (t: Throwable) {
             showFatal(t)
         }
+        // 启动时就插着电不算"刚插上"，别一打开就弹充电锁屏
+        lastCharging = try { isChargingNow() } catch (t: Throwable) { false }
+        battery.charging = lastCharging
         handler.post(ticker)
         ensureCallPermission()
         ensureDefaultHome()
@@ -116,6 +120,7 @@ class MainActivity : Activity() {
             }
             val r = object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: android.content.Context?, i: Intent?) {
+                    Log.i("ElderUI", "power receiver action=${i?.action}")
                     when (i?.action) {
                         Intent.ACTION_POWER_CONNECTED -> {
                             // 插电：自动进黑屏页（充电锁屏形态），点一下回桌面
@@ -815,7 +820,22 @@ class MainActivity : Activity() {
         val md = SimpleDateFormat("M月d日", Locale.CHINA).format(now)
         val wk = SimpleDateFormat("EEEE", Locale.CHINA).format(now)
         battery.percent = batteryPercent()
-        battery.charging = isChargingNow()
+        val charging = isChargingNow()
+        // 充电状态跳变兜底：HyperOS 可能不发 POWER_CONNECTED/DISCONNECTED
+        // （1.0.35 实测：reset 造出真实插线事件后动态接收器毫无日志），
+        // 但 BATTERY_CHANGED 一定发——5 秒一跳也能接上。
+        if (charging != lastCharging) {
+            Log.i("ElderUI", "charging transition $lastCharging -> $charging")
+            lastCharging = charging
+            battery.charging = charging
+            if (charging) {
+                if (aodView == null) blackOut() else applyAodMode()
+            } else {
+                applyAodMode()
+            }
+        } else {
+            battery.charging = charging
+        }
         dateText.text = "$md  $wk"
     }
 

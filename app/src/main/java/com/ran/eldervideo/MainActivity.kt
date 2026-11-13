@@ -93,6 +93,23 @@ class MainActivity : Activity() {
             showFatal(t)
         }
         handler.post(ticker)
+        ensureCallPermission()
+    }
+
+    /** 拨号器角色换来的电话权限在 HyperOS 上不会真正落地，只能自己申请一次。
+     *  放在开机这一下申请，老人点「确定打电话」时才不会被对话框打断。 */
+    private fun ensureCallPermission() {
+        try {
+            val sp = getSharedPreferences("elder", MODE_PRIVATE)
+            val granted = checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (granted) return
+            if (sp.getBoolean("asked_call_perm", false)) return
+            sp.edit().putBoolean("asked_call_perm", true).apply()
+            requestPermissions(arrayOf(android.Manifest.permission.CALL_PHONE), 2001)
+        } catch (t: Throwable) {
+            Log.w("ElderUI", "申请电话权限失败：" + t.message)
+        }
     }
 
     override fun onResume() {

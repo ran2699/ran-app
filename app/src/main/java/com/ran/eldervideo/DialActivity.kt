@@ -40,6 +40,7 @@ class DialActivity : Activity() {
         super.onCreate(savedInstanceState)
         root = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#0B0B0B")) }
         setContentView(root)
+        Haptics.attach(window.decorView)
         setupImmersive()
 
         val tel = intent?.data?.schemeSpecificPart.orEmpty()
@@ -117,7 +118,7 @@ class DialActivity : Activity() {
     private fun showAsk() {
         val col = column(120, 60, 34)
         col.addView(
-            label("你是不是\n想要给别人打电话", 44f, Color.WHITE, true).apply { maxLines = 2 },
+            label("你是不是\n想要给别人打电话", 38f, Color.WHITE, true),
             LinearLayout.LayoutParams(-1, -2)
         )
         col.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))

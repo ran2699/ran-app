@@ -1,11 +1,14 @@
 package com.ran.eldervideo
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.telecom.TelecomManager
 import android.os.Build
 import android.os.Bundle
 import android.text.SpannableString
@@ -220,14 +223,61 @@ class DialActivity : Activity() {
         switchTo(col)
     }
 
+    private var pendingNumber = ""
+
     private fun dial(number: String) {
+        val digits = number.filter { it.isDigit() }
+        if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+            pendingNumber = digits
+            requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), REQ_CALL)
+            return
+        }
+        placeCall(digits)
+    }
+
+    private fun placeCall(digits: String) {
         try {
-            val i = Intent(Intent.ACTION_CALL, Uri.parse("tel:" + number.filter { it.isDigit() }))
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(i)
+            startActivity(
+                Intent(Intent.ACTION_CALL, Uri.parse("tel:" + digits))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            finish()
+            return
+        } catch (t: Throwable) {
+        }
+        // 默认拨号器换来的权限偶尔没落地（HyperOS 上实测过），再走 TelecomManager 试一次
+        try {
+            val tm = getSystemService(TelecomManager::class.java)
+            tm.placeCall(Uri.parse("tel:" + digits), Bundle())
             finish()
         } catch (t: Throwable) {
-            Toast.makeText(this, "拨不出去：" + (t.message ?: "没有打电话权限"), Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                "还没有打电话的权限：设置 → 应用 → 老年桌面 → 权限 → 电话 → 允许",
+                Toast.LENGTH_LONG
+            ).show()
         }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQ_CALL) return
+        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            placeCall(pendingNumber)
+        } else {
+            Toast.makeText(
+                this,
+                "还没有打电话的权限：设置 → 应用 → 老年桌面 → 权限 → 电话 → 允许",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    companion object {
+        private const val REQ_CALL = 1001
     }
 }

@@ -251,16 +251,17 @@ class CallActivity : Activity() {
         }
         val stopText = StrokeText(this).apply {
             text = "他没有接你的电话，\n你可以过一会再拨"
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 46f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setLineSpacing(dp(10).toFloat(), 1f)
+            setLineSpacing(dp(12).toFloat(), 1f)
         }
+        missCol.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
         missCol.addView(stopText, LinearLayout.LayoutParams(-1, -2))
         missCol.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
         val closeBtn = BigCallButton(this, "关闭", Color.parseColor("#3A3F46"), Color.parseColor("#22262B"), BigCallButton.ICON_CROSS)
-        closeBtn.textSizeSp = 40f
-        closeBtn.iconSizeDp = 48f
+        closeBtn.textSizeSp = 34f
+        closeBtn.iconSizeDp = 40f
         closeBtn.setOnPressListener { finishSafely() }
         missCol.addView(closeBtn, LinearLayout.LayoutParams(-1, dp(140)).apply { bottomMargin = dp(30) })
         missedLayer.addView(missCol, FrameLayout.LayoutParams(-1, -1))
@@ -274,7 +275,7 @@ class CallActivity : Activity() {
         override fun onDraw(c: Canvas) {
             val p = paint
             p.style = Paint.Style.STROKE
-            p.strokeWidth = 10f
+            p.strokeWidth = 5f
             p.strokeJoin = Paint.Join.ROUND
             p.color = Color.WHITE
             super.onDraw(c)

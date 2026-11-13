@@ -59,7 +59,10 @@ class CallActivity : Activity() {
     private lateinit var hangBtn: BigCallButton
     private lateinit var answerBtn: BigCallButton
     private lateinit var missedLayer: FrameLayout
-    private lateinit var endHeading: FrameLayout
+    private lateinit var endTag: TextView
+    private lateinit var endName: TextView
+    private lateinit var endLine: FrameLayout
+    private lateinit var endHint: FrameLayout
 
     private val handler = Handler(Looper.getMainLooper())
     private var ringtone: Ringtone? = null
@@ -277,31 +280,54 @@ class CallActivity : Activity() {
 
         root.addView(col, FrameLayout.LayoutParams(-1, -1))
 
-        // ---- 没接通那一屏：红字白边 + 关闭 ----
+        // ---- 结束那一屏：沿用主界面的排版（灰小标 / 黄字姓名 / 大行 / 提示行 / 绿色大键）----
         missedLayer = FrameLayout(this).apply {
             setBackgroundColor(Color.parseColor("#0B0B0B"))
             visibility = View.GONE
         }
         val missCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(34), dp(60), dp(34), dp(60))
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(22), dp(80), dp(22), dp(30))
         }
-        // 字由 showEnd() 填：红字白边 = 没接上，白字 = 挂了
-        endHeading = FrameLayout(this)
+        endTag = TextView(this).apply {
+            text = "电话结束了"
+            setTextColor(Color.parseColor("#9AA5B1"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
+            gravity = Gravity.CENTER
+        }
+        missCol.addView(endTag, LinearLayout.LayoutParams(-1, -2))
+
+        endName = TextView(this).apply {
+            text = ""
+            setTextColor(Color.parseColor("#FFD54F"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 96f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            maxLines = 2
+            visibility = View.GONE
+        }
+        missCol.addView(endName, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+
+        endLine = FrameLayout(this)
+        missCol.addView(endLine, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+
+        endHint = FrameLayout(this)
+        missCol.addView(endHint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+
         missCol.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
-        missCol.addView(endHeading, LinearLayout.LayoutParams(-1, -2))
-        missCol.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
-        val closeBtn = BigCallButton(this, "关闭", Color.parseColor("#3A3F46"), Color.parseColor("#22262B"), BigCallButton.ICON_CROSS)
-        closeBtn.textSizeSp = 34f
-        closeBtn.iconSizeDp = 40f
+
+        val closeBtn = BigCallButton(this, "知道了", Color.parseColor("#2E9E4F"), Color.parseColor("#14501F"), BigCallButton.ICON_TICK)
+        closeBtn.textSizeSp = 40f
+        closeBtn.iconSizeDp = 46f
         closeBtn.setOnPressListener { finishSafely() }
-        missCol.addView(closeBtn, LinearLayout.LayoutParams(-1, dp(140)).apply { bottomMargin = dp(30) })
+        missCol.addView(closeBtn, LinearLayout.LayoutParams(-1, dp(190)).apply { bottomMargin = dp(34) })
         missedLayer.addView(missCol, FrameLayout.LayoutParams(-1, -1))
         root.addView(missedLayer, FrameLayout.LayoutParams(-1, -1))
 
         setContentView(root)
         autoSize(nameView, 44, 96, 2)
+        autoSize(endName, 44, 96, 2)
         autoSize(lineView, 30, 52, 2)
         autoSize(stateView, 28, 40, 1)
         autoSize(hintView, 30, 44, 2)
@@ -324,7 +350,7 @@ class CallActivity : Activity() {
         override fun onDraw(c: Canvas) {
             val p = paint
             p.style = Paint.Style.STROKE
-            p.strokeWidth = 4f * resources.displayMetrics.density
+            p.strokeWidth = 6f * resources.displayMetrics.density
             p.strokeJoin = Paint.Join.ROUND
             p.color = Color.WHITE
             super.onDraw(c)
@@ -347,24 +373,27 @@ class CallActivity : Activity() {
         nameView.text = name
     }
 
-    /** 填结束页上的字。断行写死，不让它自己断在「电/话」中间 */
-    private fun setHeading(msg: String, red: Boolean) {
-        endHeading.removeAllViews()
-        if (red) {
-            endHeading.addView(StrokeLabel(this, msg, 36f), FrameLayout.LayoutParams(-1, -2))
-            endHeading.addView(FillLabel(this, msg, 36f), FrameLayout.LayoutParams(-1, -2))
-        } else {
-            val tv = TextView(this).apply {
-                text = msg
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 44f)
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                maxLines = 3
-                setLineSpacing(14f * resources.displayMetrics.density, 1f)
-            }
-            endHeading.addView(tv, FrameLayout.LayoutParams(-1, -2))
+    /** 红字白边的一行 */
+    private fun putStroked(box: FrameLayout, msg: String, sizeSp: Float) {
+        box.removeAllViews()
+        if (msg.isEmpty()) return
+        box.addView(StrokeLabel(this, msg, sizeSp), FrameLayout.LayoutParams(-1, -2))
+        box.addView(FillLabel(this, msg, sizeSp), FrameLayout.LayoutParams(-1, -2))
+    }
+
+    /** 纯白（或指定色）的一行，给「已经挂断了」这类不需要警告色的消息 */
+    private fun putPlain(box: FrameLayout, msg: String, sizeSp: Float, color: Int) {
+        box.removeAllViews()
+        if (msg.isEmpty()) return
+        val tv = TextView(this).apply {
+            text = msg
+            setTextColor(color)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            maxLines = 2
         }
+        box.addView(tv, FrameLayout.LayoutParams(-1, -2))
     }
 
     /** 电话结束那一屏。原因只看账本，不看 Telecom 现在的状态 */
@@ -374,15 +403,31 @@ class CallActivity : Activity() {
         handler.removeCallbacks(ticker)
         stopRing()
         val reason = CallLedger.endReason
-        val who = if (CallLedger.name.isNotEmpty()) CallLedger.name else "他"
-        val red = reason == "missed"
-        val msg = when (reason) {
-            "missed" -> "他没有接你的电话\n你可以过一会再拨"
-            "callerHangup" -> who + " 挂断了电话\n你可以给他打回去"
-            else -> "电话已经挂断了"
-        }
+        val who = CallLedger.name
         try {
-            setHeading(msg, red)
+            if (who.isNotEmpty()) {
+                endName.text = who
+                endName.visibility = View.VISIBLE
+            } else {
+                endName.visibility = View.GONE
+            }
+            when (reason) {
+                "missed" -> {
+                    endTag.text = "电话没有打通"
+                    putStroked(endLine, "他没有接你的电话", 54f)
+                    putStroked(endHint, "你可以过一会再拨", 38f)
+                }
+                "callerHangup" -> {
+                    endTag.text = "电话结束了"
+                    putPlain(endLine, "电话已经挂断了", 50f, Color.WHITE)
+                    putPlain(endHint, "你可以过一会给他打回去", 34f, Color.parseColor("#CFD8DC"))
+                }
+                else -> {
+                    endTag.text = "电话结束了"
+                    putPlain(endLine, "电话已经挂断了", 50f, Color.WHITE)
+                    putPlain(endHint, "", 34f, Color.WHITE)
+                }
+            }
             col.visibility = View.GONE
             missedLayer.visibility = View.VISIBLE
         } catch (t: Throwable) {
@@ -531,7 +576,11 @@ class CallActivity : Activity() {
                 if (!endedShown) {
                     endedShown = true
                     handler.removeCallbacks(ticker)
-                    setHeading("他没有接你的电话\n你可以过一会再拨", true)
+                    endName.text = pn
+                    endName.visibility = View.VISIBLE
+                    endTag.text = "电话没有打通"
+                    putStroked(endLine, "他没有接你的电话", 54f)
+                    putStroked(endHint, "你可以过一会再拨", 38f)
                     col.visibility = View.GONE
                     missedLayer.visibility = View.VISIBLE
                 }

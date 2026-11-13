@@ -9,6 +9,8 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.os.Build
@@ -19,6 +21,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.telecom.Call
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -31,13 +34,16 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * 自绘的来电 / 通话界面。系统来电界面不会出现（本应用是默认电话应用）。
- * 大字：王敬然 给你打来了电话
- * 小字：点一下绿色的按钮接电话
- * 下面两个大圆角矩形：左红「挂电话」、右绿「接电话」。
+ * 自绘的来电、拨出、通话、没接通四种界面。系统那一套不会出现（本应用是默认电话应用）。
+ *
+ *   来电      王敬然 / 给你打来了电话      + 绿字「点一下绿色的按钮接电话」
+ *   拨出      正在给 / 王敬然 / 打电话      + 「你再等一会，他还没有接电话」
+ *   接通      王敬然 / 他接了你的电话      + 「现在可以说话了」（震动两下、自动开免提）
+ *   没接通    红色白边字「他没有接你的电话，你可以过一会再拨」+ 关闭按钮
  */
 class CallActivity : Activity() {
 
+    private lateinit var col: LinearLayout
     private lateinit var tagView: TextView
     private lateinit var nameView: TextView
     private lateinit var lineView: TextView
@@ -46,15 +52,25 @@ class CallActivity : Activity() {
     private lateinit var hintView: TextView
     private lateinit var hangBtn: BigCallButton
     private lateinit var answerBtn: BigCallButton
+    private lateinit var missedLayer: FrameLayout
 
     private val handler = Handler(Looper.getMainLooper())
     private var ringtone: Ringtone? = null
     private var vibrator: Vibrator? = null
     private var connectAt = 0L
     private var ringing = false
+
     private var preview = false
     private var previewName = ""
     private var previewNumber = ""
+    private var previewState = ""
+
+    private var shownOnce = false
+    private var everActive = false
+    private var outgoing = false
+    private var endedShown = false
+    private var speakerOn = false
+    private var hungSelf = false
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -82,6 +98,7 @@ class CallActivity : Activity() {
         preview = intent?.getBooleanExtra("preview", false) ?: false
         previewName = intent?.getStringExtra("preview_name").orEmpty()
         previewNumber = intent?.getStringExtra("preview_number").orEmpty()
+        previewState = intent?.getStringExtra("preview_state").orEmpty()
         buildUi()
         setupImmersive()
         render()
@@ -132,7 +149,7 @@ class CallActivity : Activity() {
         val root = FrameLayout(this)
         root.setBackgroundColor(Color.parseColor("#0B0B0B"))
 
-        val col = LinearLayout(this).apply {
+        col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(22), dp(80), dp(22), dp(30))
@@ -154,7 +171,7 @@ class CallActivity : Activity() {
             gravity = Gravity.CENTER
             maxLines = 2
         }
-        col.addView(nameView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
+        col.addView(nameView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
 
         lineView = TextView(this).apply {
             text = "给你打来了电话"
@@ -183,9 +200,9 @@ class CallActivity : Activity() {
         col.addView(stateView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         hintView = TextView(this).apply {
-            text = "点一下绿色的按钮接电话"
+            text = ""
             setTextColor(Color.parseColor("#7BD88F"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 32f)
             gravity = Gravity.CENTER
             maxLines = 2
         }
@@ -196,7 +213,11 @@ class CallActivity : Activity() {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
 
         hangBtn = BigCallButton(this, "挂电话", Color.parseColor("#C62828"), Color.parseColor("#6E0A0A"), BigCallButton.ICON_HANG)
-        hangBtn.setOnPressListener { CallService.endCall() }
+        hangBtn.setOnPressListener {
+            // 自己按挂断就安静关掉，不要误报「他没有接你的电话」
+            hungSelf = true
+            CallService.endCall()
+        }
         answerBtn = BigCallButton(this, "接电话", Color.parseColor("#2E9E4F"), Color.parseColor("#14501F"), BigCallButton.ICON_ANSWER)
         answerBtn.setOnPressListener { CallService.acceptCall() }
 
@@ -205,30 +226,89 @@ class CallActivity : Activity() {
         col.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(34) })
 
         root.addView(col, FrameLayout.LayoutParams(-1, -1))
+
+        // ---- 没接通那一屏：红字白边 + 关闭 ----
+        missedLayer = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#0B0B0B"))
+            visibility = View.GONE
+        }
+        val missCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(34), dp(60), dp(34), dp(60))
+        }
+        val stopText = StrokeText(this).apply {
+            text = "他没有接你的电话，\n你可以过一会再拨"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 46f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setLineSpacing(dp(10).toFloat(), 1f)
+        }
+        missCol.addView(stopText, LinearLayout.LayoutParams(-1, -2))
+        missCol.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
+        val closeBtn = BigCallButton(this, "关闭", Color.parseColor("#3A3F46"), Color.parseColor("#22262B"), BigCallButton.ICON_CROSS)
+        closeBtn.textSizeSp = 40f
+        closeBtn.iconSizeDp = 48f
+        closeBtn.setOnPressListener { finishSafely() }
+        missCol.addView(closeBtn, LinearLayout.LayoutParams(-1, dp(140)).apply { bottomMargin = dp(30) })
+        missedLayer.addView(missCol, FrameLayout.LayoutParams(-1, -1))
+        root.addView(missedLayer, FrameLayout.LayoutParams(-1, -1))
+
         setContentView(root)
     }
 
+    /** 红字白边：先描白边再填红 */
+    class StrokeText(ctx: Context) : TextView(ctx) {
+        override fun onDraw(c: Canvas) {
+            val p = paint
+            p.style = Paint.Style.STROKE
+            p.strokeWidth = 10f
+            p.strokeJoin = Paint.Join.ROUND
+            p.color = Color.WHITE
+            super.onDraw(c)
+            p.style = Paint.Style.FILL
+            p.color = Color.parseColor("#FF3B30")
+            super.onDraw(c)
+        }
+    }
+
+    private fun setName(name: String) {
+        nameView.text = name
+        nameView.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (name.length <= 3) 96f else 62f)
+    }
+
+    private fun showMissed() {
+        if (endedShown) return
+        endedShown = true
+        handler.removeCallbacks(ticker)
+        stopRing()
+        try {
+            col.visibility = View.GONE
+            missedLayer.visibility = View.VISIBLE
+        } catch (t: Throwable) {
+        }
+    }
+
     private fun render() {
-        if (preview && CallService.current == null) {
-            tagView.text = "来电"
-            val pn = if (previewName.isNotEmpty()) previewName else "李存有"
-            nameView.text = pn
-            nameView.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (pn.length <= 3) 96f else 62f)
-            lineView.text = "给你打来了电话"
-            lineView.visibility = View.VISIBLE
-            numView.text = CallBook.pretty(if (previewNumber.isNotEmpty()) previewNumber else "13703188618")
-            numView.visibility = View.VISIBLE
-            stateView.text = ""
-            hintView.text = "点一下绿色的按钮接电话"
-            hintView.visibility = View.VISIBLE
-            answerBtn.visibility = View.VISIBLE
+        if (endedShown) return
+
+        // 调试预览：不需要真打通电话也能看每一屏
+        if (preview) {
+            renderPreview()
             return
         }
+
         val call = CallService.current
         if (call == null) {
-            finishSafely()
+            shownOnce = shownOnce || everActive
+            when {
+                outgoing && !everActive && !hungSelf -> showMissed()
+                else -> finishSafely()
+            }
             return
         }
+        shownOnce = true
+
         val st = try {
             call.details.state
         } catch (t: Throwable) {
@@ -239,51 +319,154 @@ class CallActivity : Activity() {
         } catch (t: Throwable) {
             ""
         }
+        if (!shownOnce || call.details.state != Call.STATE_DISCONNECTED) {
+            try {
+                outgoing = call.details.callDirection == Call.Details.DIRECTION_OUTGOING
+            } catch (t: Throwable) {
+            }
+        }
         val name = CallBook.nameFor(number)
         val shown = if (name.isNotEmpty()) name else "陌生号码"
-        nameView.text = shown
-        // 「陌生号码」四个字用 96sp 会被拆成两行，长名字一律降一档
-        nameView.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (shown.length <= 3) 96f else 62f)
         numView.text = CallBook.pretty(number)
         numView.visibility = View.VISIBLE
 
         when (st) {
             Call.STATE_RINGING -> {
+                setName(shown)
                 tagView.text = "来电"
+                tagView.visibility = View.VISIBLE
                 lineView.text = "给你打来了电话"
                 lineView.visibility = View.VISIBLE
                 stateView.text = ""
                 hintView.text = "点一下绿色的按钮接电话"
+                hintView.setTextColor(Color.parseColor("#7BD88F"))
                 hintView.visibility = View.VISIBLE
                 answerBtn.visibility = View.VISIBLE
+                hangBtn.visibility = View.VISIBLE
                 startRing()
             }
             Call.STATE_DIALING, Call.STATE_CONNECTING -> {
-                tagView.text = ""
-                lineView.text = "正在给你拨号…"
+                // 正在给 / 王敬然 / 打电话
+                setName(shown)
+                tagView.text = "正在给"
+                tagView.visibility = View.VISIBLE
+                lineView.text = "打电话"
                 lineView.visibility = View.VISIBLE
                 stateView.text = ""
-                hintView.visibility = View.GONE
+                hintView.text = "你再等一会，他还没有接电话"
+                hintView.setTextColor(Color.parseColor("#CFD8DC"))
+                hintView.visibility = View.VISIBLE
                 answerBtn.visibility = View.GONE
+                hangBtn.visibility = View.VISIBLE
                 stopRing()
             }
             Call.STATE_ACTIVE -> {
-                tagView.text = ""
-                lineView.text = "通话中"
+                if (!everActive) {
+                    everActive = true
+                    connectAt = System.currentTimeMillis()
+                    notifyConnected()
+                }
+                setName(shown)
+                tagView.visibility = View.GONE
+                lineView.text = "他接了你的电话"
                 lineView.visibility = View.VISIBLE
-                hintView.visibility = View.GONE
+                hintView.text = "现在可以说话了"
+                hintView.setTextColor(Color.parseColor("#7BD88F"))
+                hintView.visibility = View.VISIBLE
                 answerBtn.visibility = View.GONE
+                hangBtn.visibility = View.VISIBLE
                 stopRing()
-                if (connectAt == 0L) connectAt = System.currentTimeMillis()
                 val sec = (System.currentTimeMillis() - connectAt) / 1000L
                 stateView.text = String.format("%02d:%02d", sec / 60, sec % 60)
             }
             Call.STATE_DISCONNECTED -> {
                 stopRing()
-                finishSafely()
+                if (outgoing && !everActive && !hungSelf) showMissed() else finishSafely()
             }
             else -> {
             }
+        }
+    }
+
+    private fun renderPreview() {
+        val pn = if (previewName.isNotEmpty()) previewName else "王敬然"
+        val pnum = if (previewNumber.isNotEmpty()) previewNumber else "18712961913"
+        when (previewState) {
+            "missed" -> {
+                showMissed()
+            }
+            "active" -> {
+                setName(pn)
+                tagView.visibility = View.GONE
+                lineView.text = "他接了你的电话"
+                numView.text = CallBook.pretty(pnum)
+                hintView.text = "现在可以说话了"
+                hintView.setTextColor(Color.parseColor("#7BD88F"))
+                stateView.text = "00:07"
+                answerBtn.visibility = View.GONE
+            }
+            "dialing" -> {
+                setName(pn)
+                tagView.text = "正在给"
+                tagView.visibility = View.VISIBLE
+                lineView.text = "打电话"
+                numView.text = CallBook.pretty(pnum)
+                hintView.text = "你再等一会，他还没有接电话"
+                hintView.setTextColor(Color.parseColor("#CFD8DC"))
+                stateView.text = ""
+                answerBtn.visibility = View.GONE
+            }
+            else -> {
+                setName(pn)
+                tagView.text = "来电"
+                tagView.visibility = View.VISIBLE
+                lineView.text = "给你打来了电话"
+                numView.text = CallBook.pretty(pnum)
+                hintView.text = "点一下绿色的按钮接电话"
+                hintView.setTextColor(Color.parseColor("#7BD88F"))
+                stateView.text = ""
+                answerBtn.visibility = View.VISIBLE
+            }
+        }
+    }
+
+    /** 接通那一下：震两下、自动开免提、音量拉到最大 */
+    private fun notifyConnected() {
+        try {
+            val v: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                getSystemService(VibratorManager::class.java)?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Vibrator::class.java)
+            }
+            if (v != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 220, 180, 220), -1))
+                } else {
+                    @Suppress("DEPRECATION")
+                    v.vibrate(longArrayOf(0, 220, 180, 220), -1)
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w("ElderCall", "接通震动失败：" + t.message)
+        }
+        try {
+            val am = getSystemService(AudioManager::class.java)
+            am.mode = AudioManager.MODE_IN_CALL
+            @Suppress("DEPRECATION")
+            am.isSpeakerphoneOn = true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val dev = am.availableCommunicationDevices.firstOrNull {
+                    it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                }
+                if (dev != null) am.setCommunicationDevice(dev)
+            }
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+            am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, max, 0)
+            speakerOn = true
+            Log.i("ElderCall", "免提已开，音量 $max/${am.getStreamVolume(AudioManager.STREAM_VOICE_CALL)} 模式=${am.mode}")
+        } catch (t: Throwable) {
+            Log.w("ElderCall", "开免提失败：" + t.message)
         }
     }
 
@@ -341,150 +524,5 @@ class CallActivity : Activity() {
         } catch (t: Throwable) {
         }
         vibrator = null
-    }
-}
-
-/**
- * 大圆角矩形按钮：先画一层深色投影再画正面，按下去正面会沉一下，
- * 和桌面上那套机械键同一个手感。图标是手绘的，四种：接听、挂断、对勾、叉。
- */
-class BigCallButton(
-    ctx: Context,
-    private val label: String,
-    private val face: Int,
-    private val dark: Int,
-    private val icon: Int
-) : View(ctx) {
-
-    companion object {
-        const val ICON_ANSWER = 0
-        const val ICON_HANG = 1
-        const val ICON_TICK = 2
-        const val ICON_CROSS = 3
-        const val ICON_NONE = 4
-    }
-
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textAlign = Paint.Align.CENTER
-        typeface = Typeface.DEFAULT_BOLD
-    }
-    private var pressed = false
-    private var onPress: (() -> Unit)? = null
-
-    var textSizeSp: Float = 38f
-    var iconSizeDp: Float = 78f
-
-    fun setOnPressListener(f: () -> Unit) {
-        onPress = f
-    }
-
-    private fun dp(v: Float): Float = v * resources.displayMetrics.density
-
-    override fun onDraw(c: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-        val off = dp(10f)
-        val rad = dp(34f)
-        val sink = if (pressed) off * 0.7f else 0f
-
-        paint.style = Paint.Style.FILL
-        paint.color = dark
-        c.drawRoundRect(RectF(0f, off, w, h), rad, rad, paint)
-
-        paint.color = face
-        c.drawRoundRect(RectF(0f, sink, w, h - off + sink), rad, rad, paint)
-
-        val bottom = h - off + sink
-        textPaint.textSize = dp(textSizeSp)
-
-        if (icon == ICON_NONE) {
-            val ty = sink + (bottom - sink) / 2f - (textPaint.ascent() + textPaint.descent()) / 2f
-            c.drawText(label, w / 2f, ty, textPaint)
-        } else {
-            drawIcon(c, w / 2f, sink + bottom * 0.32f, dp(iconSizeDp))
-            c.drawText(label, w / 2f, sink + bottom * 0.80f, textPaint)
-        }
-    }
-
-    private fun drawIcon(c: Canvas, cx: Float, cy: Float, size: Float) {
-        when (icon) {
-            ICON_ANSWER, ICON_HANG -> drawHandset(c, cx, cy, size, icon == ICON_HANG)
-            ICON_TICK -> drawTick(c, cx, cy, size)
-            ICON_CROSS -> drawCross(c, cx, cy, size)
-        }
-    }
-
-    private fun drawHandset(c: Canvas, cx: Float, cy: Float, size: Float, hang: Boolean) {
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = size * 0.22f
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.color = Color.WHITE
-
-        c.save()
-        c.rotate(if (hang) 135f else -45f, cx, cy)
-        val r = size * 0.40f
-        val rect = RectF(cx - r, cy - r, cx + r, cy + r)
-        c.drawArc(rect, 200f, 140f, false, paint)
-        c.restore()
-
-        paint.style = Paint.Style.FILL
-        val dot = paint.strokeWidth * 0.62f
-        c.save()
-        c.rotate(if (hang) 135f else -45f, cx, cy)
-        val a = Math.toRadians(200.0)
-        val b = Math.toRadians(340.0)
-        c.drawCircle(cx + (r * Math.cos(a)).toFloat(), cy + (r * Math.sin(a)).toFloat(), dot, paint)
-        c.drawCircle(cx + (r * Math.cos(b)).toFloat(), cy + (r * Math.sin(b)).toFloat(), dot, paint)
-        c.restore()
-    }
-
-    private fun drawTick(c: Canvas, cx: Float, cy: Float, size: Float) {
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = size * 0.24f
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.strokeJoin = Paint.Join.ROUND
-        paint.color = Color.WHITE
-        val p = Path()
-        p.moveTo(cx - size * 0.42f, cy + size * 0.02f)
-        p.lineTo(cx - size * 0.10f, cy + size * 0.34f)
-        p.lineTo(cx + size * 0.44f, cy - size * 0.34f)
-        c.drawPath(p, paint)
-    }
-
-    private fun drawCross(c: Canvas, cx: Float, cy: Float, size: Float) {
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = size * 0.24f
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.color = Color.WHITE
-        val s = size * 0.34f
-        c.drawLine(cx - s, cy - s, cx + s, cy + s, paint)
-        c.drawLine(cx - s, cy + s, cx + s, cy - s, paint)
-    }
-
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                pressed = true
-                invalidate()
-            }
-            MotionEvent.ACTION_UP -> {
-                pressed = false
-                invalidate()
-                onPress?.invoke()
-                performClick()
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                pressed = false
-                invalidate()
-            }
-        }
-        return true
-    }
-
-    override fun performClick(): Boolean {
-        super.performClick()
-        return true
     }
 }

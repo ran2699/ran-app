@@ -249,15 +249,13 @@ class CallActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(dp(34), dp(60), dp(34), dp(60))
         }
-        val stopText = StrokeText(this).apply {
-            text = "他没有接你的电话，\n你可以过一会再拨"
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f)
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setLineSpacing(dp(12).toFloat(), 1f)
-        }
+        // 断行位置写死，不让它自己断在「电/话」中间
+        val msg = "他没有接你的电话\n你可以过一会再拨"
+        val heading = FrameLayout(this)
+        heading.addView(StrokeLabel(this, msg, 36f), FrameLayout.LayoutParams(-1, -2))
+        heading.addView(FillLabel(this, msg, 36f), FrameLayout.LayoutParams(-1, -2))
         missCol.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
-        missCol.addView(stopText, LinearLayout.LayoutParams(-1, -2))
+        missCol.addView(heading, LinearLayout.LayoutParams(-1, -2))
         missCol.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
         val closeBtn = BigCallButton(this, "关闭", Color.parseColor("#3A3F46"), Color.parseColor("#22262B"), BigCallButton.ICON_CROSS)
         closeBtn.textSizeSp = 34f
@@ -270,18 +268,38 @@ class CallActivity : Activity() {
         setContentView(root)
     }
 
-    /** 红字白边：先描白边再填红 */
-    class StrokeText(ctx: Context) : TextView(ctx) {
+    /**
+     * 红字白边：两个 TextView 严格叠在一起 —— 下层只描白边，上层填红。
+     * 在同一个 TextView 里改 paint.style 连画两遍，实测红字会被白边糊成白的。
+     */
+    private class StrokeLabel(ctx: Context, label: String, sizeSp: Float) : TextView(ctx) {
+        init {
+            text = label
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setLineSpacing(12f * resources.displayMetrics.density, 1f)
+        }
+
         override fun onDraw(c: Canvas) {
             val p = paint
             p.style = Paint.Style.STROKE
-            p.strokeWidth = 5f
+            p.strokeWidth = 4f * resources.displayMetrics.density
             p.strokeJoin = Paint.Join.ROUND
             p.color = Color.WHITE
             super.onDraw(c)
             p.style = Paint.Style.FILL
-            p.color = Color.parseColor("#FF3B30")
-            super.onDraw(c)
+        }
+    }
+
+    private class FillLabel(ctx: Context, label: String, sizeSp: Float) : TextView(ctx) {
+        init {
+            text = label
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#FF3B30"))
+            setLineSpacing(12f * resources.displayMetrics.density, 1f)
         }
     }
 

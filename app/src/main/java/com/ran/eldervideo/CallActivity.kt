@@ -364,7 +364,7 @@ class CallActivity : Activity() {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(Color.parseColor("#FF3B30"))
+            setTextColor(Color.parseColor("#FF4A4A"))
             setLineSpacing(12f * resources.displayMetrics.density, 1f)
         }
     }
@@ -414,8 +414,8 @@ class CallActivity : Activity() {
             when (reason) {
                 "missed" -> {
                     endTag.text = "电话没有打通"
-                    putStroked(endLine, "他没有接你的电话", 54f)
-                    putStroked(endHint, "你可以过一会再拨", 38f)
+                    putStroked(endLine, "他没有接你的电话", 44f)
+                    putStroked(endHint, "你可以过一会再拨", 34f)
                 }
                 "callerHangup" -> {
                     endTag.text = "电话结束了"
@@ -579,8 +579,8 @@ class CallActivity : Activity() {
                     endName.text = pn
                     endName.visibility = View.VISIBLE
                     endTag.text = "电话没有打通"
-                    putStroked(endLine, "他没有接你的电话", 54f)
-                    putStroked(endHint, "你可以过一会再拨", 38f)
+                    putStroked(endLine, "他没有接你的电话", 44f)
+                    putStroked(endHint, "你可以过一会再拨", 34f)
                     col.visibility = View.GONE
                     missedLayer.visibility = View.VISIBLE
                 }

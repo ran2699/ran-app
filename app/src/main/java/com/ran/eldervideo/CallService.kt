@@ -37,7 +37,7 @@ class CallService : InCallService() {
         fun endCall() {
             val c = current ?: return
             try {
-                if (c.details.state == Call.STATE_RINGING) c.reject(false) else c.disconnect()
+                if (c.details.state == Call.STATE_RINGING) c.reject(false, null as String?) else c.disconnect()
                 Log.i("ElderCall", "end ok")
             } catch (t: Throwable) {
                 Log.w("ElderCall", "end failed: ${t.javaClass.simpleName} ${t.message}")

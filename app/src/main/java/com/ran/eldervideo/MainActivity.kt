@@ -137,20 +137,41 @@ class MainActivity : Activity() {
             val f = IntentFilter().apply {
                 addAction(Intent.ACTION_POWER_CONNECTED)
                 addAction(Intent.ACTION_POWER_DISCONNECTED)
+                // HyperOS 可能不派发 POWER_*（1.0.36 实测接收器毫无日志），
+                // 但 BATTERY_CHANGED 插拔必发——必达通道，和 5 秒轮询双保险
+                addAction(Intent.ACTION_BATTERY_CHANGED)
             }
             val r = object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: android.content.Context?, i: Intent?) {
                     Log.i("ElderUI", "power receiver action=${i?.action}")
                     when (i?.action) {
                         Intent.ACTION_POWER_CONNECTED -> {
-                            // 插电：自动进黑屏页（充电锁屏形态），点一下回桌面
+                            lastCharging = true; chargingSeenOnce = false
                             battery.charging = true
                             if (aodView == null) blackOut() else applyAodMode()
                         }
                         Intent.ACTION_POWER_DISCONNECTED -> {
-                            // 上一版这里没分支：拔线事件收到就扔掉，充电状态没人清
+                            lastCharging = false; chargingSeenOnce = false
                             battery.charging = false
                             applyAodMode()
+                        }
+                        Intent.ACTION_BATTERY_CHANGED -> {
+                            val st = i?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
+                            val nowCharging = st == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                                    st == android.os.BatteryManager.BATTERY_STATUS_FULL
+                            if (nowCharging != lastCharging) {
+                                Log.i("ElderUI", "bc charging $lastCharging -> $nowCharging")
+                                lastCharging = nowCharging
+                                chargingSeenOnce = false
+                                battery.charging = nowCharging
+                                if (nowCharging) {
+                                    if (aodView == null) blackOut() else applyAodMode()
+                                } else {
+                                    applyAodMode()
+                                }
+                            } else {
+                                battery.charging = nowCharging
+                            }
                         }
                     }
                 }
@@ -364,7 +385,7 @@ class MainActivity : Activity() {
         top.addView(left, LinearLayout.LayoutParams(0, -2, 1f))
 
         battery = BatteryView(this)
-        top.addView(battery, LinearLayout.LayoutParams(dp(160), dp(80)))
+        top.addView(battery, LinearLayout.LayoutParams(dp(210), dp(80)))
         col.addView(top, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
 
         // 底部两枚常驻键是绝对定位，整条底栏占 176dp，网格再留 16dp 缝 → 192dp。
@@ -646,6 +667,9 @@ class MainActivity : Activity() {
             weatherPage = w
         }
         w.visibility = View.VISIBLE
+        // 1.0.40：页面实例常驻，load() 只在创建时跑过一次——跨天、重进都不再执行，
+        // 这就是"昨天到今天结论一个字没变"的根因。现在每次打开都 refresh。
+        w.refresh()
         // 天气页是后 addView 的，默认压在两枚底栏键之上（1.0.7 实测「关掉手机」被整块盖掉）
         root.bringChildToFront(backBtn)
         root.bringChildToFront(offBtn)
@@ -786,7 +810,13 @@ class MainActivity : Activity() {
             val p = batteryPercent()
             aodBattery?.let { it.percent = p; it.invalidate() }
             aodChargeTitle?.text = if (p >= 100) "已经充满了" else "正在充电中…"
-            aodChargeSub?.text = if (p >= 100) "可以拔下来用了" else "还有 ${estimateChargeMinutes(p)} 分钟充满"
+            aodChargeSub?.text = if (p >= 100) {
+                "可以拔下来用了"
+            } else {
+                val m = estimateChargeMinutes(p)
+                // 刚插上/速度还没测出来时别写"还有 999 分钟"那种怪数
+                if (m >= 999) "正在评估时间…" else "还有 $m 分钟充满"
+            }
         }
     }
 
@@ -1236,7 +1266,7 @@ class BatteryView(ctx: Context) : View(ctx) {
     private val txtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         isFakeBoldText = true
-        textAlign = Paint.Align.CENTER
+        textAlign = Paint.Align.LEFT
         setShadowLayer(3f * d, 0f, 2f * d, Color.BLACK)
     }
 
@@ -1255,8 +1285,8 @@ class BatteryView(ctx: Context) : View(ctx) {
 
         // 布局：数字靠左、电池壳靠右。上一版闪电直接压在数字上，两层字叠着看，丑且读不清。
         val capW = h * 0.10f
-        val bodyW = h * 1.55f
-        val body = RectF(w - bodyW - capW - d * 2f, h * 0.16f, w - capW - d * 2f, h * 0.84f)
+        val textW = txtPaint.measureText(if (percent < 0) "?" else "100%")
+        val body = RectF(textW + d * 12f, h * 0.16f, w - capW - d * 2f, h * 0.84f)
 
         // 充电时壳色轻微呼吸，远看也知道在充电
         var shellAlpha = 255
@@ -1286,10 +1316,11 @@ class BatteryView(ctx: Context) : View(ctx) {
         fillPaint.color = c
         if (inner.width() > 1f && percent >= 0) canvas.drawRoundRect(inner, 5f * d, 5f * d, fillPaint)
 
-        // 数字：在电池壳左边，白字大号
-        txtPaint.textSize = 30f * d
+        // 数字：贴 view 左缘画（LEFT 对齐），壳让出文字宽度——之前 CENTER 对齐画在
+        // 壳左边 12dp 处，文字一半伸出 view 左缘被裁，"100%" 显示不全
+        txtPaint.textSize = 28f * d
         val label = if (percent < 0) "?" else "$percent%"
-        canvas.drawText(label, body.left - 12f * d, h / 2f + 11f * d, txtPaint)
+        canvas.drawText(label, d * 3f, h / 2f + 10f * d, txtPaint)
 
         // 充电中：白色小闪电嵌在壳内右侧空白处（不压数字、不压填充），呼吸
         if (charging) {

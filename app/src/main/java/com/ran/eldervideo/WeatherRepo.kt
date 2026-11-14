@@ -212,6 +212,56 @@ object WeatherRepo {
         }
     }
 
+    /**
+     * 只拉"现在多少度"：每次点开天气页都调用（1.0.40）。
+     * 国内源 dataSK 0.2 秒级返回；失败逐级兜底。
+     * 返回 {"current":{temperature_2m,weather_code}}，供 mergeCurrent 覆盖进完整数据。
+     */
+    fun fetchCurrentOnly(ctx: Context): String? {
+        currentFromCn()?.let { return it }
+        currentFromOpenMeteo()?.let { return it }
+        currentFromWttr()?.let { return it }
+        return null
+    }
+
+    private fun currentFromCn(): String? {
+        val raw = httpGet(
+            "https://d1.weather.com.cn/weather_index/$CITY_CODE.html",
+            mapOf("Referer" to "https://www.weather.com.cn/"),
+            connectMs = 5000, readMs = 7000
+        ) ?: return null
+        val sk = jsVar(raw, "dataSK")?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return null
+        val temp = sk.optString("temp").toDoubleOrNull() ?: return null
+        val code = mapCode(sk.optString("weathercode", "02"))
+        return JSONObject().put("current", JSONObject()
+            .put("temperature_2m", temp)
+            .put("weather_code", code)).toString()
+    }
+
+    private fun currentFromOpenMeteo(): String? {
+        val raw = httpGet(
+            "https://api.open-meteo.com/v1/forecast?latitude=$LAT&longitude=$LON" +
+                    "&current=temperature_2m,weather_code&forecast_days=1",
+            connectMs = 6000, readMs = 10000
+        ) ?: return null
+        val j = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        val cur = j.optJSONObject("current") ?: return null
+        if (!cur.has("temperature_2m")) return null
+        return JSONObject().put("current", cur).toString()
+    }
+
+    private fun currentFromWttr(): String? {
+        val raw = httpGet("https://wttr.in/Shijiazhuang?format=j1",
+            connectMs = 6000, readMs = 10000) ?: return null
+        val cc = runCatching { JSONObject(raw) }
+            .getOrNull()?.optJSONArray("current_condition")?.optJSONObject(0) ?: return null
+        val temp = cc.optString("temp_C").toDoubleOrNull() ?: return null
+        val desc = cc.optJSONArray("weatherDesc")?.optJSONObject(0)?.optString("value") ?: ""
+        return JSONObject().put("current", JSONObject()
+            .put("temperature_2m", temp)
+            .put("weather_code", mapText(desc))).toString()
+    }
+
     // ---------------- 源 2：open-meteo ----------------
 
     private fun fromOpenMeteo(): String? = httpGet(

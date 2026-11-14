@@ -165,6 +165,11 @@ class WeatherPage2(ctx: Context) : LinearLayout(ctx) {
         var body = base
         var curUpdated = false
         val cur = WeatherRepo2.fetchCurrentOnly(context)
+        android.util.Log.i(
+            "ElderWeather",
+            "refresh 预报=${if (cached != null) "当天缓存" else if (fresh) "已重新联网拉" else "旧数据"} " +
+                    "当前温度=${if (cur != null) "刚刚现拉" else "没拉到"}"
+        )
         if (body != null && cur != null) {
             body = mergeCurrent(body, cur)
             curUpdated = true

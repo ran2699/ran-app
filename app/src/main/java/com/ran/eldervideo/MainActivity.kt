@@ -385,7 +385,7 @@ class MainActivity : Activity() {
         top.addView(left, LinearLayout.LayoutParams(0, -2, 1f))
 
         battery = BatteryView(this)
-        top.addView(battery, LinearLayout.LayoutParams(dp(210), dp(80)))
+        top.addView(battery, LinearLayout.LayoutParams(dp(130), dp(92)))
         col.addView(top, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
 
         // 底部两枚常驻键是绝对定位，整条底栏占 176dp，网格再留 16dp 缝 → 192dp。
@@ -1253,7 +1253,8 @@ class BatteryView(ctx: Context) : View(ctx) {
             invalidate()
         }
 
-    /** 充电中：电池中央画一颗呼吸的黄色闪电，并逐帧刷新 */
+    /** 充电中：壳下方写「充电中」并轻微呼吸。闪电贴纸已删——
+     *  白闪电描白边缩看就是一块白框，被当成系统元素（1.0.42 用户实拍反馈） */
     var charging: Boolean = false
         set(v) {
             if (field != v) {
@@ -1268,7 +1269,7 @@ class BatteryView(ctx: Context) : View(ctx) {
     private val txtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         isFakeBoldText = true
-        textAlign = Paint.Align.LEFT
+        textAlign = Paint.Align.CENTER
         setShadowLayer(3f * d, 0f, 2f * d, Color.BLACK)
     }
 
@@ -1285,12 +1286,14 @@ class BatteryView(ctx: Context) : View(ctx) {
         if (w <= 0f || h <= 0f) return
         val c = levelColor(percent)
 
-        // 布局：数字靠左、电池壳靠右。上一版闪电直接压在数字上，两层字叠着看，丑且读不清。
-        val capW = h * 0.10f
-        val textW = txtPaint.measureText(if (percent < 0) "?" else "100%")
-        val body = RectF(textW + d * 12f, h * 0.16f, w - capW - d * 2f, h * 0.84f)
+        // 1.0.42 版式：壳在上、文字在下（用户指定）。宽度还给时间——
+        // 上一版电池 210dp 把 66sp 的大字时间挤没了
+        val capW = h * 0.05f
+        val bodyW = w * 0.66f
+        val bodyH = h * 0.44f
+        val bodyLeft = (w - bodyW - capW * 2f) / 2f
+        val body = RectF(bodyLeft, h * 0.06f, bodyLeft + bodyW, h * 0.06f + bodyH)
 
-        // 充电时壳色轻微呼吸，远看也知道在充电
         var shellAlpha = 255
         if (charging) {
             val t = System.currentTimeMillis()
@@ -1298,17 +1301,18 @@ class BatteryView(ctx: Context) : View(ctx) {
         }
         shellPaint.strokeWidth = 3.5f * d
         shellPaint.color = Color.argb(shellAlpha, Color.red(c), Color.green(c), Color.blue(c))
-        canvas.drawRoundRect(body, 8f * d, 8f * d, shellPaint)
+        canvas.drawRoundRect(body, 7f * d, 7f * d, shellPaint)
 
         // 正极小帽
         fillPaint.color = Color.argb(shellAlpha, Color.red(c), Color.green(c), Color.blue(c))
         canvas.drawRoundRect(
-            RectF(body.right + d * 2f, body.centerY() - h * 0.13f, w - d, body.centerY() + h * 0.13f),
+            RectF(body.right + d * 2f, body.centerY() - bodyH * 0.22f,
+                  body.right + d * 2f + capW, body.centerY() + bodyH * 0.22f),
             3f * d, 3f * d, fillPaint
         )
 
         // 电量填充
-        val inset = 5f * d
+        val inset = 4.5f * d
         val ratio = percent.coerceIn(0, 100) / 100f
         val inner = RectF(
             body.left + inset, body.top + inset,
@@ -1316,39 +1320,21 @@ class BatteryView(ctx: Context) : View(ctx) {
             body.bottom - inset
         )
         fillPaint.color = c
-        if (inner.width() > 1f && percent >= 0) canvas.drawRoundRect(inner, 5f * d, 5f * d, fillPaint)
+        if (inner.width() > 1f && percent >= 0) canvas.drawRoundRect(inner, 4f * d, 4f * d, fillPaint)
 
-        // 数字：贴 view 左缘画（LEFT 对齐），壳让出文字宽度——之前 CENTER 对齐画在
-        // 壳左边 12dp 处，文字一半伸出 view 左缘被裁，"100%" 显示不全
-        txtPaint.textSize = 28f * d
-        val label = if (percent < 0) "?" else "$percent%"
-        canvas.drawText(label, d * 3f, h / 2f + 10f * d, txtPaint)
-
-        // 充电中：白色小闪电嵌在壳内右侧空白处（不压数字、不压填充），呼吸
+        // 壳下方文字：平时是百分比，充电时换成「充电中」（用状态色呼吸）
         if (charging) {
-            val boltPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-            boltPaint.color = Color.WHITE
-            boltPaint.alpha = shellAlpha
-            val s = h * 0.42f
-            val cx = body.centerX()
-            val cy = body.centerY()
-            val p = android.graphics.Path()
-            p.moveTo(cx + s * 0.10f, cy - s * 0.50f)
-            p.lineTo(cx - s * 0.26f, cy + s * 0.08f)
-            p.lineTo(cx - s * 0.02f, cy + s * 0.08f)
-            p.lineTo(cx - s * 0.10f, cy + s * 0.50f)
-            p.lineTo(cx + s * 0.26f, cy - s * 0.08f)
-            p.lineTo(cx + s * 0.02f, cy - s * 0.08f)
-            p.close()
-            // 描一圈深色，保证压在绿/黄/红填充上都看得清
-            val withStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeWidth = s * 0.10f
-                color = Color.argb(150, 0, 0, 0)
-            }
-            canvas.drawPath(p, withStroke)
-            canvas.drawPath(p, boltPaint)
-            postInvalidateOnAnimation()
+            txtPaint.color = Color.argb(shellAlpha, Color.red(c), Color.green(c), Color.blue(c))
+            txtPaint.textSize = 21f * d
+            canvas.drawText("充电中", w / 2f, body.bottom + 30f * d, txtPaint)
+        } else {
+            txtPaint.color = Color.WHITE
+            txtPaint.textSize = 25f * d
+            val label = if (percent < 0) "?" else "$percent%"
+            canvas.drawText(label, w / 2f, body.bottom + 32f * d, txtPaint)
         }
+
+        // 充电呼吸：只有充电时持续重绘
+        if (charging) postInvalidateOnAnimation()
     }
 }

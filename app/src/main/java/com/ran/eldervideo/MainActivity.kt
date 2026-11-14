@@ -661,7 +661,7 @@ class MainActivity : Activity() {
     private fun openWeather() {
         var w = weatherPage
         if (w == null) {
-            w = WeatherPage(this)
+            w = WeatherPage2(this)
             w.visibility = View.GONE
             root.addView(w, FrameLayout.LayoutParams(-1, -1))
             weatherPage = w

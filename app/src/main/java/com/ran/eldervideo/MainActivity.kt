@@ -659,7 +659,9 @@ class MainActivity : Activity() {
 
     /** 自己写的天气页，不走第三方 App */
     private fun openWeather() {
-        var w = weatherPage
+        // 注意类型：weatherPage 字段是 View?，直接拿来做 w.refresh() 编译不过
+        // （#137~#140 四轮 Unresolved reference: refresh 的真凶就是这个，不是推送失败）
+        var w = weatherPage as? WeatherPage2
         if (w == null) {
             w = WeatherPage2(this)
             w.visibility = View.GONE

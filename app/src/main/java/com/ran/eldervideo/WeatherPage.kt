@@ -128,46 +128,79 @@ class WeatherPage(ctx: Context) : LinearLayout(ctx) {
         LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) }
 
     // ---------------- 数据 ----------------
-    private fun load() {
+    /** 上次渲染用的完整数据（含预报），供只刷当前温度时复用 */
+    private var lastBody: String? = null
+    private var refreshing = false
+
+    /**
+     * 每次打开都执行（1.0.40 机制重做）：
+     * ① 当前温度——每次点开都联网现拉（国内源 0.2 秒级）；
+     * ② 预报（明天/后天/结论）——当天拉过就用缓存，跨天才重拉；
+     * ③ 全挂时才退回旧缓存/旧数据。
+     * 旧版 load() 只在页面创建时跑一次，而页面实例常驻——跨天重进永远不刷新，
+     * 这就是"昨天写大后天下雨、今天还写"的根因。
+     */
+    fun refresh() {
+        if (refreshing) return
+        refreshing = true
         Thread {
-            // ① 当天已经取到过：直接渲染缓存，一次网络都不发
-            val cached = WeatherRepo.cachedToday(context)
-            if (cached != null) {
-                post {
-                    render(cached)
-                    status.text = "今天已更新过 · " + WeatherRepo.savedAt(context) +
-                            " · 同一天不再联网 · " + CITY
-                }
-                return@Thread
-            }
-
-            // ② 联网：国内源优先，逐级兜底
-            var body: String? = null
-            var err: String? = null
             try {
-                body = WeatherRepo.fetchOnline(context)
-            } catch (t: Throwable) {
-                err = t.message
-            }
-
-            val got = body
-            post {
-                if (got != null) {
-                    render(got)
-                    status.text = "更新于 " + WeatherRepo.savedAt(context) + " · " + CITY
-                } else {
-                    // ③ 三个源都没通：有旧数据就先给旧的，别让人看见一片空白
-                    val old = WeatherRepo.lastAny(context)
-                    if (old != null) {
-                        render(old)
-                        status.text = "现在连不上，先看上次的天气 · " + WeatherRepo.savedAt(context)
-                    } else {
-                        fail(err)
-                    }
-                }
+                refreshWork()
+            } finally {
+                refreshing = false
             }
         }.start()
     }
+
+    private fun refreshWork() {
+        // ② 预报：当天有缓存用缓存；没有（跨天了）联网重拉
+        val cached = WeatherRepo.cachedToday(context)
+        var forecast = cached
+        if (forecast == null) forecast = WeatherRepo.fetchOnline(context)
+        if (forecast == null) forecast = WeatherRepo.lastAny(context)   // 全挂先给旧的
+        val base = forecast ?: lastBody
+        val fresh = cached == null && forecast != null
+
+        // ① 当前温度：每次点开都现拉，成功就合并进 base
+        var body = base
+        var curUpdated = false
+        val cur = WeatherRepo.fetchCurrentOnly(context)
+        if (body != null && cur != null) {
+            body = mergeCurrent(body, cur)
+            curUpdated = true
+        }
+
+        val finalBody = body
+        post {
+            if (finalBody != null) {
+                lastBody = finalBody
+                render(finalBody)
+                val saved = WeatherRepo.savedAt(context)
+                status.text = when {
+                    fresh && curUpdated -> "刚刚更新 · $saved · " + CITY
+                    curUpdated -> "当前温度刚刚更新 · 预报 $saved 更新 · " + CITY
+                    fresh -> "更新于 $saved · " + CITY
+                    else -> "现在连不上，先看上次的天气 · $saved"
+                }
+            } else {
+                fail("三个天气源都没连上")
+            }
+        }
+    }
+
+    /** 把新拉的 current 覆盖进完整数据里，预报部分原样保留 */
+    private fun mergeCurrent(base: String, cur: String): String {
+        return try {
+            val a = JSONObject(base)
+            val b = JSONObject(cur)
+            a.put("current", b.getJSONObject("current"))
+            a.toString()
+        } catch (t: Throwable) {
+            base
+        }
+    }
+
+    private fun load() = refresh()
 
     private fun fail(err: String?) {
         descText.text = "没拿到"

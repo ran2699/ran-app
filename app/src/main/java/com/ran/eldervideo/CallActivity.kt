@@ -11,7 +11,6 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
-import android.media.AudioManager
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.os.Build

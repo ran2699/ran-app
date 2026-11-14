@@ -6,6 +6,18 @@
 
 ---
 
+## 1.0.41 — 2026-11-14
+
+- 修 `Unresolved reference: refresh` 真凶：openWeather 里 `var w = weatherPage` 推断为 View?，
+  View 没有 refresh()——与推送无关（#137~#140 四轮误诊记录在案：fetch_url 的 base64 被截断，
+  解码看不到文件中后部，凭截断内容误判"远端是旧版"；git fetch 验证实际全部推送成功）。
+- 绕行产物 WeatherPage2/WeatherRepo2 保留（新类名新文件，旧 WeatherPage/WeatherRepo 内容
+  其实早已是新版；两套并存可编译，下个大版本再清理）。
+- 天气页 refreshWork 加 ElderWeather 日志（预报来源 + 当前温度是否现拉），
+  让"每次点开刷当前温度"可观测可验证。
+
+---
+
 ## 1.0.40 — 2026-11-14
 
 ### 改（用户五点要求）

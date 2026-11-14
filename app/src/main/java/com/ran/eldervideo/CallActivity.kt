@@ -11,6 +11,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.AudioManager
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.os.Build
@@ -543,6 +544,7 @@ class CallActivity : Activity() {
                     everActive = true
                     CallLedger.everActive = true
                     connectAt = System.currentTimeMillis()
+                    forceSpeakerMaxVolume()   // 打进打出都一样：刚接通就免提+音量拉满
                     notifyConnected()
                 }
                 setName(shown)
@@ -667,6 +669,23 @@ class CallActivity : Activity() {
         try {
             finish()
         } catch (t: Throwable) {
+        }
+    }
+
+    /**
+     * 接通后自动免提并把通话音量拉满（1.0.40，用户要求打进打出统一）。
+     * STREAM_VOICE_CALL 要在 MODE_IN_COMMUNICATION 下才调得动，先设模式。
+     */
+    private fun forceSpeakerMaxVolume() {
+        try {
+            val am = getSystemService(AudioManager::class.java) ?: return
+            am.mode = AudioManager.MODE_IN_COMMUNICATION
+            am.isSpeakerphoneOn = true
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+            am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, max, 0)
+            Log.i("ElderCall", "speaker on, voice volume=$max")
+        } catch (t: Throwable) {
+            Log.w("ElderCall", "speaker failed: ${t.javaClass.simpleName} ${t.message}")
         }
     }
 

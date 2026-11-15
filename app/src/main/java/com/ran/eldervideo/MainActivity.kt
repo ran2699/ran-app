@@ -512,7 +512,7 @@ class MainActivity : Activity() {
             if (entered.toString() == savedPin()) {
                 closePinPage()
                 toast("密码对了")
-                handler.postDelayed({ openHomeSettings() }, 320L)
+                handler.postDelayed({ showExitAsk() }, 320L)
             } else {
                 entered.setLength(0)
                 refresh()
@@ -596,6 +596,126 @@ class MainActivity : Activity() {
         }
         pinPage = null
     }
+    // ---------------- 退出老人桌面（1.0.44） ----------------
+    private var exitAskLayer: View? = null
+
+    /** 密码正确后的确认页：两个大按钮，确定退出/先不退出 */
+    private fun showExitAsk() {
+        if (exitAskLayer != null) return
+        val d = resources.displayMetrics.density
+        fun dp(v: Float) = (v * d).toInt()
+        val layer = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#F5000000")) }
+        layer.isClickable = true
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(30f), dp(16f), dp(30f), dp(36f))
+        }
+        col.addView(TextView(this).apply {
+            text = "要退出老人桌面吗？"
+            textSize = 60f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        col.addView(TextView(this).apply {
+            text = "退出后手机变回普通桌面，自动回桌面、无障碍这些限制都会关掉。\n想再变回来，重新打开这个应用就行。"
+            textSize = 30f
+            setTextColor(Color.parseColor("#9AA7B5"))
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(16f) })
+
+        fun askBtn(label: String, bg: String, onTap: () -> Unit) = TextView(this).apply {
+            text = label
+            textSize = 46f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor(bg))
+                cornerRadius = dp(26f).toFloat()
+            }
+            setOnClickListener { onTap() }
+        }
+        col.addView(askBtn("确定退出", "#1B7F3B") { exitElderMode() },
+            LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, dp(118f)
+            ).apply { topMargin = dp(44f) })
+        col.addView(askBtn("先不退出", "#8E1F1F") { dismissExitAsk() },
+            LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, dp(118f)
+            ).apply { topMargin = dp(20f) })
+
+        layer.addView(
+            col,
+            FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
+        )
+        exitAskLayer = layer
+        root.addView(layer)
+    }
+
+    private fun dismissExitAsk() {
+        exitAskLayer?.let { v -> runCatching { root.removeView(v) } }
+        exitAskLayer = null
+    }
+
+    /** 一键还原：关守卫与自愈、收浮层、解除无障碍、默认桌面写回小米桌面 */
+    private fun exitElderMode() {
+        val sp = getSharedPreferences("elder", MODE_PRIVATE)
+        sp.edit().putBoolean("guard_on", false).putBoolean("heal_on", false).apply()
+        SwipeService.pauseGuard(7200L)
+        runCatching { OverlayService.stop(this) }
+        runCatching {
+            val cur = Settings.Secure.getString(
+                contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ).orEmpty()
+            val left = cur.split(':').map { it.trim() }
+                .filter { it.isNotEmpty() && !it.contains("eldervideo") }
+                .joinToString(":")
+            Settings.Secure.putString(
+                contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, left
+            )
+            if (left.isEmpty()) {
+                Settings.Secure.putInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0)
+            }
+        }
+        var restored = false
+        runCatching {
+            Settings.Secure.putString(
+                contentResolver, "home_app", "com.miui.home/com.miui.home.launcher.Launcher"
+            )
+            restored = Settings.Secure.getString(contentResolver, "home_app")
+                .orEmpty().contains("com.miui.home")
+        }
+        dismissExitAsk()
+        // 默认电话应用（dialer 角色）系统不允许 App 自己撤销，只能用户在场手动改
+        toast(if (restored) "已退出，下面是普通手机桌面" else "请在弹出页选「小米桌面」并点「始终」")
+        if (restored) {
+            runCatching {
+                startActivity(
+                    Intent(Intent.ACTION_MAIN)
+                        .addCategory(Intent.CATEGORY_HOME)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        } else {
+            runCatching {
+                startActivity(
+                    Intent(Settings.ACTION_HOME_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        }
+        finish()
+    }
+
     /** 密码对了才允许离开：打开系统的"默认桌面"设置页 */
     private fun openHomeSettings() {
         try {
@@ -1007,6 +1127,8 @@ class MainActivity : Activity() {
      * 授一次即可（永久生效、重启不丢），之后老人不用再点任何东西。
      */
     private fun selfHealA11y(): Boolean {
+        // 退出老人模式后不再自愈（否则这边刚解除，那边又把无障碍写回来）
+        if (!getSharedPreferences("elder", MODE_PRIVATE).getBoolean("heal_on", true)) return false
         val svcId = "$packageName/com.ran.eldervideo.SwipeService"
         return try {
             val cur = Settings.Secure.getString(

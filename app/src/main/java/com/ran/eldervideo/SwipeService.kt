@@ -138,8 +138,9 @@ class SwipeService : AccessibilityService() {
                 }
                 Log.i(TAG, "sync overlay fg=$fgPkg actual=$actual want=$want")
                 OverlayService.setVisible(want)
-                // 事件包名可能滞留（抖音窗口抖动那类问题），守卫以实际前台为准兜底
-                guardCheck(if (actual.isNotEmpty()) actual else fgPkg)
+                // 事件包名可能滞留（抖音窗口抖动那类问题），守卫以实际前台为准兜底。
+                // syncOverlay 在 companion 里，实例方法要走 instance 调（#145 编译教训）
+                instance?.guardCheck(if (actual.isNotEmpty()) actual else fgPkg)
             } catch (e: Throwable) {
                 Log.e(TAG, "sync overlay failed", e)
             }

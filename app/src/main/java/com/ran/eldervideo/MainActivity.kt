@@ -686,27 +686,54 @@ class MainActivity : Activity() {
                 Settings.Secure.putInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0)
             }
         }
+        // 默认桌面不记在 Settings.Secure 里，它由 PackageManager 的 preferred activity（或角色 ROLE_HOME）决定。
+         // 原来写 "home_app" 键再读回来判断，读到的就是自己刚写进去的值——恒为 true，
+         // 于是每次都报"已退出"，startActivity(HOME) 又落回老人桌面，表现就是"根本退不出去"。
         var restored = false
+        runCatching { packageManager.clearPackagePreferredActivities(packageName) }
         runCatching {
-            Settings.Secure.putString(
-                contentResolver, "home_app", "com.miui.home/com.miui.home.launcher.Launcher"
+            val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            val best = packageManager.resolveActivity(
+                home, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY
             )
-            restored = Settings.Secure.getString(contentResolver, "home_app")
-                .orEmpty().contains("com.miui.home")
+            val pkg = best?.activityInfo?.packageName.orEmpty()
+            restored = pkg.isNotEmpty() && pkg != packageName
+            android.util.Log.i("ElderExit", "clear preferred -> home=$pkg restored=$restored")
+        }
+        var askRole = false
+        if (!restored) {
+            // HyperOS 把默认桌面记在角色 ROLE_HOME 上，首选清不掉时拉起系统的选择框，用户点一次即可
+            runCatching {
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    val rm = getSystemService(android.app.role.RoleManager::class.java)
+                    if (rm != null && rm.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME)) {
+                        startActivityForResult(
+                            rm.createRequestRoleIntent(android.app.role.RoleManager.ROLE_HOME), 991
+                        )
+                        askRole = true
+                    }
+                }
+            }
         }
         dismissExitAsk()
         // 默认电话应用（dialer 角色）系统不允许 App 自己撤销，只能用户在场手动改
-        toast(if (restored) "已退出，下面是普通手机桌面" else "请在弹出页选「小米桌面」并点「始终」")
-        if (restored) {
-            runCatching {
+        toast(
+            when {
+                restored -> "已退出，下面是普通手机桌面"
+                askRole -> "请在弹出页选「小米桌面」"
+                else -> "请把默认桌面改成「小米桌面」"
+            }
+        )
+        when {
+            restored -> runCatching {
                 startActivity(
                     Intent(Intent.ACTION_MAIN)
                         .addCategory(Intent.CATEGORY_HOME)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
             }
-        } else {
-            runCatching {
+            askRole -> Unit   // 系统的默认桌面选择框已经弹出来了，不要再压一层设置页
+            else -> runCatching {
                 startActivity(
                     Intent(Settings.ACTION_HOME_SETTINGS)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

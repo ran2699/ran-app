@@ -55,6 +55,35 @@ class SwipeService : AccessibilityService() {
             TIKTOK_PACKAGES.any { fgPkg.startsWith(it) }
 
         /** 直接问无障碍服务：系统认为现在最上层的那个窗口属于谁 */
+        /**
+         * 守卫白名单（1.0.44）：这些前台包不算"跑了"。
+         * 自家全部页面（桌面/通话/拨号/锁屏）、抖音（走桌面键或自己滑进来都允许）、
+         * 系统壳与权限弹窗、设置页、小米负一屏/锁屏、输入法。
+         */
+        private val GUARD_ALLOWED = arrayOf(
+            "com.ss.android.ugc.aweme",
+            "com.ss.android.ugc.aweme.lite",
+            "com.ss.android.ugc.live",
+            "com.android.systemui",
+            "android",
+            "com.android.settings",
+            "com.miui.securitycenter",
+            "com.miui.permission",
+            "com.google.android.permissioncontroller",
+            "com.miui.personalassistant",
+            "com.android.inputmethod.latin",
+            "com.sohu.inputmethod.sogou.xiaomi"
+        )
+
+        @Volatile
+        private var guardPausedUntil = 0L
+
+        /** 短时间内不守卫：退出流程、主动开设置页时用 */
+        fun pauseGuard(seconds: Long) {
+            guardPausedUntil = System.currentTimeMillis() + seconds * 1000L
+            Log.i(TAG, "guard paused ${seconds}s")
+        }
+
         private fun realActivePackage(): String {
             val inst = instance ?: return ""
             try {
@@ -109,6 +138,8 @@ class SwipeService : AccessibilityService() {
                 }
                 Log.i(TAG, "sync overlay fg=$fgPkg actual=$actual want=$want")
                 OverlayService.setVisible(want)
+                // 事件包名可能滞留（抖音窗口抖动那类问题），守卫以实际前台为准兜底
+                guardCheck(if (actual.isNotEmpty()) actual else fgPkg)
             } catch (e: Throwable) {
                 Log.e(TAG, "sync overlay failed", e)
             }
@@ -118,6 +149,25 @@ class SwipeService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var screenW = 0
     private var screenH = 0
+
+    /**
+     * 自动收拢守卫：老人误开别的软件（微信、浏览器、相机…）立刻弹回桌面。
+     * 白名单见 GUARD_ALLOWED；退出老人模式会把 guard_on 关掉，
+     * 主动进设置页等场景用 pauseGuard 临时放行；息屏时不动作。
+     */
+    private fun guardCheck(pkg: String) {
+        if (pkg.isEmpty()) return
+        val sp = getSharedPreferences("elder", MODE_PRIVATE)
+        if (!sp.getBoolean("guard_on", true)) return
+        if (System.currentTimeMillis() < guardPausedUntil) return
+        val pm = getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+        if (pm != null && !pm.isInteractive) return
+        if (pkg == packageName || pkg.startsWith("$packageName.")) return
+        if (GUARD_ALLOWED.any { pkg == it || pkg.startsWith("$it.") }) return
+        Log.i(TAG, "guard kick $pkg back home")
+        android.widget.Toast.makeText(this, "请从桌面大按钮选应用", android.widget.Toast.LENGTH_LONG).show()
+        try { performGlobalAction(GLOBAL_ACTION_HOME) } catch (t: Throwable) {}
+    }
 
     /**
      * 定时核对前台。
@@ -187,7 +237,10 @@ class SwipeService : AccessibilityService() {
             if (pkg.isNotEmpty()) {
                 // 系统层弹窗（权限框、状态栏、系统壳）不代表真的离开了抖音，跳过不记
                 val noise = NOISE_PKGS.any { pkg == it || pkg.startsWith("$it.") }
-                if (!noise) fgPkg = pkg
+                if (!noise) {
+                    fgPkg = pkg
+                    guardCheck(pkg)
+                }
                 // 浮层跟着抖音走：抖音在前台才出现，回到任何别的界面收掉。
                 syncOverlay()
             }

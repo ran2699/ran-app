@@ -249,6 +249,8 @@ class MainActivity : Activity() {
         handler.postDelayed({ checkAccessibility() }, 4000L)
         handler.postDelayed({ checkAccessibility() }, 8000L)
         try {
+            // 自家桌面回到前台是最硬的前台信号，先把它记进服务，别让滞后的抖音事件顶掉
+            runCatching { SwipeService.markSelfForeground() }
             OverlayService.setVisible(false)
             // 稍等一会儿再解除屏蔽，防止抖音的滞后事件把浮层又弹出来
             root.postDelayed({

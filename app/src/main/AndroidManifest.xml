@@ -26,7 +26,7 @@
         android:name="com.ran.eldervideo.CrashApp"
         android:allowBackup="false"
         android:extractNativeLibs="false"
-        android:label="大视频"
+        android:label="老人桌面"
         android:debuggable="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
 

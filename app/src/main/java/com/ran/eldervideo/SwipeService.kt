@@ -62,6 +62,56 @@ class SwipeService : AccessibilityService() {
         fun isTiktokForeground(): Boolean =
             TIKTOK_PACKAGES.any { fgPkg.startsWith(it) }
 
+        /** 上一次能确认的前台包名：拿不到窗口时用它兜底，不因为"读不到"就当作离开了 */
+        @Volatile
+        private var lastKnownFg: String = ""
+
+        private var usageStats: android.app.usage.UsageStatsManager? = null
+
+        private fun isNoise(pkg: String): Boolean =
+            pkg.isEmpty() || NOISE_PKGS.any { pkg == it || pkg.startsWith("$it.") }
+
+        /** 自家桌面 Resume 是最硬的前台信号：抖音的滞后事件不能把它顶掉 */
+        fun markSelfForeground() {
+            val self = instance?.packageName ?: "com.ran.eldervideo"
+            fgPkg = self
+            lastKnownFg = self
+        }
+
+        /**
+         * 第二判据：UsageStats 最近恢复的 Activity。
+         * 需要 GET_USAGE_STATS（adb appops set com.ran.eldervideo GET_USAGE_STATS allow，一次性）。
+         * 抖音全屏播放时 AccessibilityService.windows 经常拿不到 active 窗口，
+         * 这条能补上前台到底是谁；拿不到就返回空，不影响别处。
+         */
+        private fun usageFg(): String {
+            return try {
+                val inst = instance ?: return ""
+                if (usageStats == null) {
+                    usageStats = inst.getSystemService(Context.USAGE_STATS_SERVICE)
+                        as? android.app.usage.UsageStatsManager
+                }
+                val us = usageStats ?: return ""
+                val end = System.currentTimeMillis()
+                val cursor = us.queryEvents(end - 20000L, end) ?: return ""
+                val ev = android.app.usage.UsageEvents.Event()
+                var best = ""
+                var bestT = 0L
+                while (cursor.hasNextEvent()) {
+                    cursor.getNextEvent(ev)
+                    if (ev.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED &&
+                        ev.timeStamp >= bestT
+                    ) {
+                        bestT = ev.timeStamp
+                        best = ev.packageName.orEmpty()
+                    }
+                }
+                best
+            } catch (t: Throwable) {
+                ""
+            }
+        }
+
         /** 直接问无障碍服务：系统认为现在最上层的那个窗口属于谁 */
         /**
          * 守卫白名单（1.0.44）：这些前台包不算"跑了"。
@@ -122,33 +172,40 @@ class SwipeService : AccessibilityService() {
                 // TYPE_WINDOW_STATE_CHANGED，事件里的包名会一直停在离开前的那个应用上
                 // （1.0.5 实测：人在抖音里，fg 还是自家桌面，浮层被"桌面在前台"这条规则误关掉，
                 //  满屏原生抖音、广告也没挡住）。所以 actual 有值就只信 actual。
+                // 三级取值（1.0.49）：真实活动窗口 → UsageStats 最近前台 → 上次已知前台。
+                // 抖音全屏播放时 windows 常常给不出 active 窗口（actual 空），而
+                // TYPE_WINDOW_STATE_CHANGED 也不随切换视频刷新，fgPkg 会一直停在进入前的应用上。
+                // 原来两路一起失效就直接判「不在抖音」把浮层收掉——表现就是停留几秒后消失。
+                // 现在只有拿到明确证据（自家桌面或别的应用）才隐藏，读不到就沿用上次已知前台。
                 val actual = realActivePackage()
-                val want: Boolean
-                if (actual.isNotEmpty()) {
-                    if (actual == self || actual.startsWith("$self.")) {
-                        Log.i(TAG, "sync overlay 实际窗口是自家桌面 actual=$actual，隐藏")
-                        OverlayService.setVisible(false)
-                        return
-                    }
-                    want = TIKTOK_PACKAGES.any { actual.startsWith(it) }
-                } else {
-                    // 拿不到活动窗口时退回事件包名
-                    if (fgPkg == self || fgPkg.startsWith("$self.")) {
-                        Log.i(TAG, "sync overlay 事件包名是自家桌面 fg=$fgPkg，隐藏")
-                        OverlayService.setVisible(false)
-                        return
-                    }
-                    want = isTiktokForeground()
+                val usg = if (isNoise(actual)) usageFg() else ""
+                val eff = when {
+                    !isNoise(actual) -> actual
+                    !isNoise(usg) -> usg
+                    actual.isNotEmpty() -> actual
+                    else -> ""
                 }
+                if (!isNoise(eff)) lastKnownFg = eff
+                val judge = when {
+                    eff.isNotEmpty() -> eff
+                    lastKnownFg.isNotEmpty() -> lastKnownFg
+                    else -> fgPkg
+                }
+                if (judge == self || judge.startsWith("$self.")) {
+                    Log.i(TAG, "sync overlay 前台是自家桌面 judge=$judge（actual=$actual usg=$usg），隐藏")
+                    OverlayService.setVisible(false)
+                    return
+                }
+                val want = TIKTOK_PACKAGES.any { judge.startsWith(it) }
                 // 服务被系统回收过，实例没了就没人能开浮层——这里补一刀
                 if (want && !OverlayService.alive()) {
                     instance?.let { OverlayService.start(it) }
                 }
-                Log.i(TAG, "sync overlay fg=$fgPkg actual=$actual want=$want")
+                Log.i(TAG, "sync overlay judge=$judge fg=$fgPkg actual=$actual usg=$usg last=$lastKnownFg want=$want")
                 OverlayService.setVisible(want)
-                // 事件包名可能滞留（抖音窗口抖动那类问题），守卫以实际前台为准兜底。
+                // 事件包名可能滞留（抖音窗口抖动那类问题），守卫以判定出来的前台为准兜底。
                 // syncOverlay 在 companion 里，实例方法要走 instance 调（#145 编译教训）
-                instance?.guardCheck(if (actual.isNotEmpty()) actual else fgPkg)
+                instance?.guardCheck(judge)
             } catch (e: Throwable) {
                 Log.e(TAG, "sync overlay failed", e)
             }

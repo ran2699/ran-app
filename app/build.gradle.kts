@@ -28,8 +28,8 @@ android {
         applicationId = "com.ran.eldervideo"
         minSdk = 26
         targetSdk = 34
-        versionCode = 145
-        versionName = "1.0.45"
+        versionCode = 146
+        versionName = "1.0.46"
     }
 
     // 该分支自 main 拉出，残留了旧工程 com.ran.agent 源码（本身编译不过）。

@@ -32,6 +32,14 @@ class BootReceiver : BroadcastReceiver() {
                             .putExtra("show_charge", true)
                     )
                 }
+                Intent.ACTION_USER_PRESENT -> {
+                    // 1.0.44：每次解锁亮屏后先过一遍自绘锁屏（大时间/日期/电池）。
+                    // 系统 Keyguard 本身替换不掉，这页在它之后、桌面之前。
+                    ctx.startActivity(
+                        Intent(ctx, LockActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
             }
         } catch (t: Throwable) {
             Log.w("ElderBoot", "onReceive failed: ${t.javaClass.simpleName} ${t.message}")

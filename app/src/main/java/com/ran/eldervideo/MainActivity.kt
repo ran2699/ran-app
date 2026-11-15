@@ -720,8 +720,8 @@ class MainActivity : Activity() {
         toast(
             when {
                 restored -> "已退出，下面是普通手机桌面"
-                askRole -> "请在弹出页选「小米桌面」"
-                else -> "请把默认桌面改成「小米桌面」"
+                askRole -> "请在弹出的框里选「系统桌面」，再点「总是」"
+                else -> "请把主屏幕应用改成「系统桌面」"
             }
         )
         when {

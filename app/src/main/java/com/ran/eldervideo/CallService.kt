@@ -51,27 +51,91 @@ class CallService : InCallService() {
          * 在 compileSdk 34 上直接引用编译不过（#145 实测 4 个 Unresolved reference），
          * 反射按类名取方法在设备端最稳——AudioRoute.TYPE_BUILTIN_SPEAKER 常量值为 2。
          */
-        private fun routeToSpeaker(c: Call): Boolean {
-            return try {
-            val details = c.javaClass.getMethod("getDetails").invoke(c) ?: return false
-            @Suppress("UNCHECKED_CAST")
-            val pairs = details.javaClass.getMethod("getAvailableAudioRoutes")
-                .invoke(details) as? List<Any> ?: return false
-            val routeClass = Class.forName("android.telecom.CallAudioState\$Route")
-            var hit = false
-            for (pair in pairs) {
-                val route = pair.javaClass.getField("route").get(pair) ?: continue
-                val type = route.javaClass.getMethod("getType").invoke(route) as? Int
-                if (type == 2) {
-                    c.javaClass.getMethod("setAudioRoute", routeClass).invoke(c, route)
-                    return true
+        /** 首次失败时把设备端真实的方法/字段名打出来，不再盲猜（#147 教训） */
+        private var routeProbed = false
+
+        private fun probeRoutes(c: Call) {
+            if (routeProbed) return
+            routeProbed = true
+            try {
+                Log.i(TAG, "probe Call route methods: " +
+                    c.javaClass.methods.map { it.name }.filter { it.contains("Route", true) }.distinct())
+                val det = c.javaClass.getMethod("getDetails").invoke(c)
+                if (det == null) { Log.w(TAG, "probe details null"); return }
+                Log.i(TAG, "probe Details class=${det.javaClass.name} route methods: " +
+                    det.javaClass.methods.map { it.name }.filter { it.contains("Route", true) }.distinct())
+                val getter = det.javaClass.methods.firstOrNull {
+                    it.name.contains("Route", true) && it.parameterCount == 0 &&
+                        List::class.java.isAssignableFrom(it.returnType)
+                } ?: return
+                @Suppress("UNCHECKED_CAST")
+                val pairs = getter.invoke(det) as? List<Any> ?: return
+                pairs.firstOrNull()?.let { p ->
+                    Log.i(TAG, "probe pair class=${p.javaClass.name} fields: " +
+                        p.javaClass.fields.map { "${it.name}:${it.type.simpleName}" })
                 }
+            } catch (t: Throwable) {
+                Log.w(TAG, "probe failed: ${t.javaClass.simpleName} ${t.message}")
             }
-            false
-        } catch (t: Throwable) {
-            Log.w(TAG, "route reflect failed: ${t.javaClass.simpleName} ${t.message}")
-            false
         }
+
+        /** telecom 路由（dialer 角色的正门）；Android 15 上 getter 名字可能变了，探测着用 */
+        private fun routeViaTelecom(c: Call): Boolean {
+            return try {
+                val det = c.javaClass.getMethod("getDetails").invoke(c) ?: return false
+                val getter = det.javaClass.methods.firstOrNull {
+                    it.name.contains("Route", true) && it.parameterCount == 0 &&
+                        List::class.java.isAssignableFrom(it.returnType)
+                } ?: return false
+                @Suppress("UNCHECKED_CAST")
+                val pairs = getter.invoke(det) as? List<Any> ?: return false
+                val routeClass = Class.forName("android.telecom.CallAudioState\$Route")
+                for (pair in pairs) {
+                    // AudioRoutePair.audioRoute 是 int；新版分组结构则找 getType()
+                    var type: Int? = null
+                    try { type = pair.javaClass.getField("audioRoute").getInt(pair) } catch (_: Throwable) {}
+                    if (type == null) {
+                        try {
+                            val r = pair.javaClass.getMethod("getRoute").invoke(pair)
+                            type = r?.javaClass?.getMethod("getType")?.invoke(r) as? Int
+                        } catch (_: Throwable) {}
+                    }
+                    if (type == 2) { // ROUTE_BUILTIN_SPEAKER
+                        val ctor = routeClass.constructors.firstOrNull {
+                            it.parameterCount == 3 && it.parameterTypes[0] == Int::class.javaPrimitiveType
+                        } ?: return false
+                        val route = ctor.newInstance(2, null, "Speaker")
+                        c.javaClass.getMethod("setAudioRoute", routeClass).invoke(c, route)
+                        return true
+                    }
+                }
+                false
+            } catch (t: Throwable) {
+                Log.w(TAG, "telecom route failed: ${t.javaClass.simpleName} ${t.message}")
+                probeRoutes(c)
+                false
+            }
+        }
+
+        /** Android 12+ 官方新路：setCommunicationDevice（通话由本 App 发起时允许） */
+        private fun routeViaCommDevice(am: AudioManager?): Boolean {
+            return try {
+                if (am == null || android.os.Build.VERSION.SDK_INT < 31) return false
+                val getter = am.javaClass.getMethod("getAvailableCommunicationDevices")
+                @Suppress("UNCHECKED_CAST")
+                val devs = getter.invoke(am) as? List<Any> ?: return false
+                val spk = devs.firstOrNull {
+                    (it.javaClass.getMethod("getType").invoke(it) as? Int) == 2 // TYPE_BUILTIN_SPEAKER
+                } ?: return false
+                val amClass = AudioManager::class.java
+                amClass.getMethod("setCommunicationDevice",
+                    Class.forName("android.media.AudioDeviceInfo")).invoke(am, spk)
+                Log.i(TAG, "comm device set ok")
+                true
+            } catch (t: Throwable) {
+                Log.w(TAG, "comm device failed: ${t.javaClass.simpleName} ${t.message}")
+                false
+            }
         }
 
         fun forceSpeakerNow(from: String) {
@@ -81,7 +145,8 @@ class CallService : InCallService() {
                 val am = svc.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
                 try { am?.mode = AudioManager.MODE_IN_COMMUNICATION } catch (_: Throwable) {}
                 var routed = "none"
-                if (routeToSpeaker(c)) routed = "telecom"
+                if (routeViaTelecom(c)) routed = "telecom"
+                if (routed == "none" && routeViaCommDevice(am)) routed = "commDevice"
                 if (routed == "none") {
                     @Suppress("DEPRECATION")
                     try { am?.isSpeakerphoneOn = true; routed = "legacy" } catch (_: Throwable) {}

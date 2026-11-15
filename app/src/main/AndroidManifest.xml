@@ -57,6 +57,15 @@
             android:screenOrientation="portrait"
             android:theme="@android:style/Theme.Material.NoActionBar" />
 
+        <!-- 自绘锁屏：解锁亮屏后自动出现（1.0.44） -->
+        <activity
+            android:name="com.ran.eldervideo.LockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+
         <!-- 极简拨号页：成为默认电话应用后，ACTION_DIAL 会落到这里 -->
         <activity
             android:name="com.ran.eldervideo.DialActivity"
@@ -117,6 +126,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
+                <action android:name="android.intent.action.USER_PRESENT" />
             </intent-filter>
         </receiver>
 

@@ -7,7 +7,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.media.AudioManager
 import android.telecom.Call
+import android.telecom.CallAudioState
 import android.telecom.InCallService
 import android.telecom.VideoProfile
 import android.graphics.PixelFormat
@@ -38,12 +40,60 @@ class CallService : InCallService() {
         @Volatile
         private var appCtx: Context? = null
 
+        /**
+         * 免提 + 最大声（1.0.44 重做）。
+         * 之前 CallActivity 里那个 forceSpeakerMaxVolume 只设了 mode 和音量、
+         * 把自己变量记成 true 就打日志「speaker on」——Android 10 后音频路由由
+         * Telecom 管，真正开关扬声器必须 call.setAudioRoute，所以一直是听筒。
+         * 打进打出都经过这里（InCallService 拿得到 Call），延迟补两次防路由被抢回。
+         */
+        fun forceSpeakerNow(from: String) {
+            val c = current ?: return
+            val svc = instance ?: return
+            try {
+                val am = svc.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                try { am?.mode = AudioManager.MODE_IN_COMMUNICATION } catch (_: Throwable) {}
+                var routed = "none"
+                try {
+                    val target = c.details.availableAudioRoutes
+                        .firstOrNull { it.route.type == CallAudioState.ROUTE_BUILTIN_SPEAKER }
+                    if (target != null) {
+                        c.setAudioRoute(target.route)
+                        routed = "telecom"
+                    }
+                } catch (_: Throwable) {}
+                if (routed == "none") {
+                    @Suppress("DEPRECATION")
+                    try { am?.isSpeakerphoneOn = true; routed = "legacy" } catch (_: Throwable) {}
+                }
+                var vol = -1
+                try {
+                    val max = am?.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL) ?: 0
+                    am?.setStreamVolume(AudioManager.STREAM_VOICE_CALL, max, 0)
+                    vol = max
+                } catch (_: Throwable) {}
+                @Suppress("DEPRECATION")
+                val spk = try { am?.isSpeakerphoneOn == true } catch (_: Throwable) { false }
+                Log.i(TAG, "speaker[$from] routed=$routed speakerOn=$spk vol=$vol")
+            } catch (t: Throwable) {
+                Log.w(TAG, "speaker[$from] failed: $t")
+            }
+        }
+
+        fun scheduleSpeaker(from: String) {
+            forceSpeakerNow(from)
+            val h = android.os.Handler(android.os.Looper.getMainLooper())
+            h.postDelayed({ forceSpeakerNow("$from+0.8s") }, 800L)
+            h.postDelayed({ forceSpeakerNow("$from+2s") }, 2000L)
+        }
+
         /** 接听：只接语音，不接视频 */
         fun acceptCall() {
             val c = current ?: return
             try {
                 c.answer(VideoProfile.STATE_AUDIO_ONLY)
                 Log.i(TAG, "accept ok")
+                scheduleSpeaker("accept")
             } catch (t: Throwable) {
                 Log.w(TAG, "accept failed: ${t.javaClass.simpleName} ${t.message}")
             }
@@ -133,6 +183,7 @@ class CallService : InCallService() {
                             if (state == Call.STATE_ACTIVE) {
                                 CallLedger.everActive = true
                                 Log.i(TAG, "state ACTIVE")
+                                scheduleSpeaker("active")
                             }
                             if (state == Call.STATE_DISCONNECTED) {
                                 Log.i(TAG, "state DISCONNECTED")

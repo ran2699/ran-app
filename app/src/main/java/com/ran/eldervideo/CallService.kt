@@ -51,7 +51,8 @@ class CallService : InCallService() {
          * 在 compileSdk 34 上直接引用编译不过（#145 实测 4 个 Unresolved reference），
          * 反射按类名取方法在设备端最稳——AudioRoute.TYPE_BUILTIN_SPEAKER 常量值为 2。
          */
-        private fun routeToSpeaker(c: Call): Boolean = try {
+        private fun routeToSpeaker(c: Call): Boolean {
+            return try {
             val details = c.javaClass.getMethod("getDetails").invoke(c) ?: return false
             @Suppress("UNCHECKED_CAST")
             val pairs = details.javaClass.getMethod("getAvailableAudioRoutes")
@@ -63,14 +64,14 @@ class CallService : InCallService() {
                 val type = route.javaClass.getMethod("getType").invoke(route) as? Int
                 if (type == 2) {
                     c.javaClass.getMethod("setAudioRoute", routeClass).invoke(c, route)
-                    hit = true
-                    break
+                    return true
                 }
             }
-            hit
+            false
         } catch (t: Throwable) {
             Log.w(TAG, "route reflect failed: ${t.javaClass.simpleName} ${t.message}")
             false
+        }
         }
 
         fun forceSpeakerNow(from: String) {

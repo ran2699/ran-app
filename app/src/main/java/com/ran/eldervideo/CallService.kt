@@ -11,6 +11,7 @@ import android.media.AudioManager
 import android.telecom.Call
 import android.telecom.InCallService
 import android.telecom.VideoProfile
++import android.telecom.CallAudioState
 import android.graphics.PixelFormat
 import android.provider.Settings
 import android.util.Log
@@ -138,14 +139,31 @@ class CallService : InCallService() {
             }
         }
 
+        /**
+         * 1.0.47：免提的唯一正门。
+         * 之前一直在反射 Call.getDetails() 找 Route getter——方向是错的：setAudioRoute 从来不在
+         * Call 上，它是 InCallService 的实例方法，由 Telecom 的 CallAudioModeStateMachine 执行。
+         * 这就是「日志写着 speaker on、耳朵听到的是听筒」的真正原因。
+         */
+        private fun setRouteSpeaker(): Boolean {
+            val svc = instance ?: return false
+            return try {
+                @Suppress("DEPRECATION")
+                svc.setAudioRoute(CallAudioState.ROUTE_SPEAKER)
+                true
+            } catch (t: Throwable) {
+                Log.w(TAG, "setAudioRoute failed: ${t.javaClass.simpleName} ${t.message}")
+                false
+            }
+        }
+
         fun forceSpeakerNow(from: String) {
-            val c = current ?: return
             val svc = instance ?: return
             try {
                 val am = svc.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                try { am?.mode = AudioManager.MODE_IN_COMMUNICATION } catch (_: Throwable) {}
                 var routed = "none"
-                if (routeViaTelecom(c)) routed = "telecom"
+                if (setRouteSpeaker()) routed = "incallService"
+                try { am?.mode = AudioManager.MODE_IN_COMMUNICATION } catch (_: Throwable) {}
                 if (routed == "none" && routeViaCommDevice(am)) routed = "commDevice"
                 if (routed == "none") {
                     @Suppress("DEPRECATION")
@@ -288,6 +306,23 @@ class CallService : InCallService() {
             CallLedger.settle(CallLedger.everActive, CallLedger.selfHung, CallLedger.outgoing)
             if (current === call) current = null
             showEndScreen()
+        }
+    }
+
+    /**
+     * 系统承认的实际路由。免提到底生没生效，只看这一行日志——
+     * 不再像以前那样拿本地变量的自述当结论。
+     */
+    override fun onCallAudioStateChanged(audioState: CallAudioState?) {
+        super.onCallAudioStateChanged(audioState)
+        try {
+            @Suppress("DEPRECATION")
+            val r = audioState?.route ?: -1
+            @Suppress("DEPRECATION")
+            val isSpk = r == CallAudioState.ROUTE_SPEAKER
+            Log.i(TAG, "audioState route=$r speaker=$isSpk")
+        } catch (t: Throwable) {
+            Log.w(TAG, "audioState read failed: $t")
         }
     }
 

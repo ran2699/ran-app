@@ -3,10 +3,18 @@ package com.ran.eldervideo
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.GestureDescription
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.PixelFormat
 import android.graphics.Path
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 
 /**
@@ -253,8 +261,81 @@ class SwipeService : AccessibilityService() {
 
     override fun onInterrupt() {}
 
+    // ---------------- 解锁 → 自绘锁屏（1.0.45） ----------------
+    /**
+     * HyperOS 的自启动管理会把 manifest 注册的 BootReceiver 挡在
+     * USER_PRESENT 投递名单外（1.0.44 实测：广播发了、我们没收到）。
+     * 无障碍服务进程常驻且不受自启动限制，改用动态注册接解锁广播。
+     * 后台拉起 Activity 靠锚点窗口换 BAL 豁免（与 CallService 1.0.43 同一手法）。
+     */
+    private var anchorView: View? = null
+
+    private val unlockWatcher = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context, intent: Intent) {
+            Log.i(TAG, "USER_PRESENT -> show lock page")
+            ensureAnchor()
+            try {
+                startActivity(
+                    Intent(ctx, LockActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "lock start failed: ${t.javaClass.simpleName} ${t.message}")
+            }
+        }
+    }
+
+    private fun ensureAnchor() {
+        if (anchorView != null) return
+        if (!Settings.canDrawOverlays(this)) {
+            Log.w(TAG, "no overlay permission, anchor skipped")
+            return
+        }
+        try {
+            val wm = getSystemService(WindowManager::class.java) ?: return
+            val v = View(this)
+            wm.addView(
+                v,
+                WindowManager.LayoutParams(
+                    1, 1,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT
+                ).apply { x = -2000; y = -2000; alpha = 0f }
+            )
+            anchorView = v
+            Log.i(TAG, "anchor overlay added")
+        } catch (t: Throwable) {
+            Log.w(TAG, "anchor failed: ${t.javaClass.simpleName} ${t.message}")
+        }
+    }
+
+    private fun dropAnchor() {
+        val v = anchorView ?: return
+        anchorView = null
+        runCatching { getSystemService(WindowManager::class.java)?.removeView(v) }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        try {
+            registerReceiver(unlockWatcher, IntentFilter(Intent.ACTION_USER_PRESENT))
+            Log.i(TAG, "unlock watcher registered")
+        } catch (t: Throwable) {
+            Log.w(TAG, "watcher register failed: $t")
+        }
+        ensureAnchor()
+    }
+
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         instance = null
+        try {
+            unregisterReceiver(unlockWatcher)
+        } catch (_: Throwable) {}
+        dropAnchor()
         try {
             OverlayService.stop(this)
         } catch (e: Throwable) {}
@@ -263,6 +344,10 @@ class SwipeService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
+        try {
+            unregisterReceiver(unlockWatcher)
+        } catch (_: Throwable) {}
+        dropAnchor()
         super.onDestroy()
     }
 

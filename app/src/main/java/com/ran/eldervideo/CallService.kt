@@ -9,7 +9,6 @@ import android.content.Intent
 import android.os.Build
 import android.media.AudioManager
 import android.telecom.Call
-import android.telecom.CallAudioState
 import android.telecom.InCallService
 import android.telecom.VideoProfile
 import android.graphics.PixelFormat
@@ -47,6 +46,33 @@ class CallService : InCallService() {
          * Telecom 管，真正开关扬声器必须 call.setAudioRoute，所以一直是听筒。
          * 打进打出都经过这里（InCallService 拿得到 Call），延迟补两次防路由被抢回。
          */
+        /**
+         * 路由 API 走反射：Call.Details.getAvailableAudioRoutes / Call.setAudioRoute
+         * 在 compileSdk 34 上直接引用编译不过（#145 实测 4 个 Unresolved reference），
+         * 反射按类名取方法在设备端最稳——AudioRoute.TYPE_BUILTIN_SPEAKER 常量值为 2。
+         */
+        private fun routeToSpeaker(c: Call): Boolean = try {
+            val details = c.javaClass.getMethod("getDetails").invoke(c) ?: return false
+            @Suppress("UNCHECKED_CAST")
+            val pairs = details.javaClass.getMethod("getAvailableAudioRoutes")
+                .invoke(details) as? List<Any> ?: return false
+            val routeClass = Class.forName("android.telecom.CallAudioState\$Route")
+            var hit = false
+            for (pair in pairs) {
+                val route = pair.javaClass.getField("route").get(pair) ?: continue
+                val type = route.javaClass.getMethod("getType").invoke(route) as? Int
+                if (type == 2) {
+                    c.javaClass.getMethod("setAudioRoute", routeClass).invoke(c, route)
+                    hit = true
+                    break
+                }
+            }
+            hit
+        } catch (t: Throwable) {
+            Log.w(TAG, "route reflect failed: ${t.javaClass.simpleName} ${t.message}")
+            false
+        }
+
         fun forceSpeakerNow(from: String) {
             val c = current ?: return
             val svc = instance ?: return
@@ -54,14 +80,7 @@ class CallService : InCallService() {
                 val am = svc.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
                 try { am?.mode = AudioManager.MODE_IN_COMMUNICATION } catch (_: Throwable) {}
                 var routed = "none"
-                try {
-                    val target = c.details.availableAudioRoutes
-                        .firstOrNull { it.route.type == CallAudioState.ROUTE_BUILTIN_SPEAKER }
-                    if (target != null) {
-                        c.setAudioRoute(target.route)
-                        routed = "telecom"
-                    }
-                } catch (_: Throwable) {}
+                if (routeToSpeaker(c)) routed = "telecom"
                 if (routed == "none") {
                     @Suppress("DEPRECATION")
                     try { am?.isSpeakerphoneOn = true; routed = "legacy" } catch (_: Throwable) {}

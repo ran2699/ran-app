@@ -78,17 +78,40 @@
   // 注意：#in 是可编辑输入框，liquidGL 用快照复制内容，打字的字不会实时进折射层，
   // 会导致输入时看不到自己打的字。输入框继续用 CSS 玻璃（视觉上仍是搜索栏质感）。
   var LENS_SEL = '#burger, #mnew, #dots, #dagentbtn, #inbig, #plusbtn';
+  /* 状态回报：直接写到输入框的占位文字里，不遮挡任何界面 */
+  function setStatus(txt) {
+    var inp = D.getElementById('in');
+    if (inp) inp.setAttribute('placeholder', txt);
+  }
+  var _lensMarked = false;
+  function markLensOn(how) {
+    if (_lensMarked) return;
+    _lensMarked = true;
+    D.body.classList.add('rg-lens-on');
+    var cs = D.querySelectorAll('canvas');
+    for (var k = 0; k < cs.length; k++) {
+      if (!cs[k].id || cs[k].id.indexOf('rg') !== 0) cs[k].classList.add('rg-lens-canvas');
+    }
+    D.body.setAttribute('data-rg-lens', 'on:' + how);
+    // 成功时也给一眼可见的正反馈，2.5 秒后恢复原样
+    setStatus('折射已启动 ✓ 试试按住按钮拖动');
+    setTimeout(function () {
+      var inp = D.getElementById('in');
+      if (inp) inp.setAttribute('placeholder', '输入任务，回车发送');
+    }, 2600);
+  }
+
   function tryLens() {
     if (lensOn) return;
     try {
       if (localStorage.getItem('ranGlassLens') === '0') { debug.push('lens off'); return; }
-      if (typeof W.liquidGL !== 'function') { debug.push('no liquidGL'); return; }
+      if (typeof W.liquidGL !== 'function') { debug.push('no liquidGL'); setStatus('折射未启动：库未加载'); return; }
       var canvasTest = D.createElement('canvas');
       if (!canvasTest.getContext('webgl2') && !canvasTest.getContext('webgl')) {
-        debug.push('no webgl'); return;
+        debug.push('no webgl'); setStatus('折射未启动：无 WebGL'); return;
       }
       var els = D.querySelectorAll(LENS_SEL);
-      if (!els.length) { debug.push('no target'); return; }
+      if (!els.length) { debug.push('no target'); setStatus('折射未启动：无目标'); return; }
       for (var i = 0; i < els.length; i++) els[i].classList.add('rg-lens');
       W.liquidGL({
         engine: 'auto',
@@ -104,33 +127,41 @@
         // 色散：只该在极窄边缘出现一丝彩边。
         // 0.6 会整圈彩虹化（上一版你看到的「奇怪的彩色」就是这个），苹果量级约 0.15~0.2
         aberration: 0.16,
-        // 轻微模糊：完全 0 会让玻璃显得「就是块透明板」，加一点才有材质感
-        frost: 0.32,
+        // frost=0.32 会把整个透镜涂成乳白（上一版「太白」的元凶）。
+        // 苹果的玻璃中心几乎是通透的，白色只出现在边缘高光和斜面上。
+        frost: 0.05,
         specular: true,
         shadow: false,
-        tint: 'rgba(255,255,255,0.08)',
+        tint: 'rgba(255,255,255,0.03)',
         // Q 弹：手指按上去，表面像黏稠液体一样被推开再回弹
         interaction: 'fluid',
         interactionStrength: 0.45,
         interactionRadius: 0.4,
         interactionViscosity: 0.5,
         on: {
-          init: function () {
-            D.body.classList.add('rg-lens-on');
-            var cs = D.querySelectorAll('canvas');
-            for (var k = 0; k < cs.length; k++) {
-              if (!cs[k].id || cs[k].id.indexOf('rg') !== 0) cs[k].classList.add('rg-lens-canvas');
-            }
-          }
+          init: function () { markLensOn('init'); }
         }
       });
       lensOn = true;
-      D.body.setAttribute('data-rg-lens', 'on');
-      debug.push('lens on');
+      debug.push('lens called');
+
+      // on.init 不一定被触发，用轮询兜底：只要 renderer 真的存在就认定成功
+      var tries = 0;
+      var poll = setInterval(function () {
+        tries++;
+        if (W.__liquidGLRenderer__) {
+          markLensOn('poll');
+          clearInterval(poll);
+        } else if (tries > 20) {
+          clearInterval(poll);
+          setStatus('折射未启动：renderer 缺失');
+        }
+      }, 150);
     } catch (e) {
       var msg = 'lens err: ' + (e && e.message ? e.message : e);
       debug.push(msg);
       try { D.body.setAttribute('data-rg-lens-fail', msg); } catch (_) {}
+      setStatus('折射出错：' + msg.slice(0, 40));
     }
   }
 

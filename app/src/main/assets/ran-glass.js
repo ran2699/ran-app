@@ -9,13 +9,14 @@
   /* ---------- 1. 雾层 DOM ---------- */
   function buildFog() {
     if (D.getElementById('rg-fog-top')) return;
+    var host = D.getElementById('main') || D.body;
     ['top', 'bot'].forEach(function (side) {
       var el = D.createElement('div');
       el.id = 'rg-fog-' + side;
       el.className = 'rg-fog rg-fog-' + side;
       for (var i = 0; i < 4; i++) el.appendChild(D.createElement('i'));
       el.appendChild(D.createElement('b'));
-      D.body.appendChild(el);
+      host.appendChild(el);
     });
   }
 

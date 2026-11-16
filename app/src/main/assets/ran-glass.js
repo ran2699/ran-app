@@ -75,20 +75,26 @@
       for (var i = 0; i < els.length; i++) els[i].classList.add('rg-lens');
       W.liquidGL({
         engine: 'auto',
-        snapshot: 'body',
+        // 只快照主容器：#main 高度=视口，纹理小、光栅化快；
+        // 用 'body' 会把整条聊天流画进纹理，超 maxTextureSize 会被降质甚至初始化失败
+        snapshot: '#main',
         target: '.rg-lens',
-        resolution: 1.5,
+        resolution: 1.25,
         // 透镜主体：整块轻微放大/位移，边缘再叠加深斜面 —— 折射主要发生在边缘
-        refraction: 0.062,
-        bevelWidth: 0.17,
-        bevelDepth: 0.19,
+        refraction: 0.075,
+        bevelWidth: 0.15,
+        bevelDepth: 0.22,
         // 色散：红蓝分向偏移，是「液态玻璃」区别于磨砂的关键
-        aberration: 0.55,
+        aberration: 0.6,
         frost: 0,
         specular: true,
         shadow: false,
-        tint: 'rgba(255,255,255,0.06)',
-        interaction: 'none',
+        tint: 'rgba(255,255,255,0.04)',
+        // Q 弹：手指按上去，表面像黏稠液体一样被推开再回弹
+        interaction: 'fluid',
+        interactionStrength: 0.45,
+        interactionRadius: 0.4,
+        interactionViscosity: 0.5,
         on: {
           init: function () {
             D.body.classList.add('rg-lens-on');
@@ -100,9 +106,12 @@
         }
       });
       lensOn = true;
+      D.body.setAttribute('data-rg-lens', 'on');
       debug.push('lens on');
     } catch (e) {
-      debug.push('lens err: ' + (e && e.message));
+      var msg = 'lens err: ' + (e && e.message ? e.message : e);
+      debug.push(msg);
+      try { D.body.setAttribute('data-rg-lens-fail', msg); } catch (_) {}
     }
   }
 

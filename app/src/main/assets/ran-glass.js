@@ -14,6 +14,7 @@
       var el = D.createElement('div');
       el.id = 'rg-fog-' + side;
       el.className = 'rg-fog rg-fog-' + side;
+      el.setAttribute('data-liquid-ignore', '');
       for (var i = 0; i < 4; i++) el.appendChild(D.createElement('i'));
       el.appendChild(D.createElement('b'));
       host.appendChild(el);
@@ -57,7 +58,9 @@
 
   /* ---------- 4. 折射层（liquidGL，失败即忽略） ---------- */
   var lensOn = false;
-  var LENS_SEL = '#in, #plusbtn, #inbig, #burger, #mnew, #dots, #dagentbtn';
+  // 注意：#in 是可编辑输入框，liquidGL 用快照复制内容，打字的字不会实时进折射层，
+  // 会导致输入时看不到自己打的字。输入框继续用 CSS 玻璃（视觉上仍是搜索栏质感）。
+  var LENS_SEL = '#burger, #mnew, #dots, #dagentbtn, #inbig, #plusbtn';
   function tryLens() {
     if (lensOn) return;
     try {
@@ -75,17 +78,20 @@
         snapshot: 'body',
         target: '.rg-lens',
         resolution: 1.5,
-        refraction: 0.012,
-        bevelWidth: 0.22,
-        bevelDepth: 0.10,
-        aberration: 0.4,
+        // 透镜主体：整块轻微放大/位移，边缘再叠加深斜面 —— 折射主要发生在边缘
+        refraction: 0.062,
+        bevelWidth: 0.17,
+        bevelDepth: 0.19,
+        // 色散：红蓝分向偏移，是「液态玻璃」区别于磨砂的关键
+        aberration: 0.55,
         frost: 0,
         specular: true,
         shadow: false,
-        tint: 'rgba(255,255,255,0.10)',
+        tint: 'rgba(255,255,255,0.06)',
         interaction: 'none',
         on: {
           init: function () {
+            D.body.classList.add('rg-lens-on');
             var cs = D.querySelectorAll('canvas');
             for (var k = 0; k < cs.length; k++) {
               if (!cs[k].id || cs[k].id.indexOf('rg') !== 0) cs[k].classList.add('rg-lens-canvas');

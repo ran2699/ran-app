@@ -274,7 +274,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
         web.webViewClient = object : WebViewClient() {
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                mark("10 渲染进程崩溃 reason=" + detail.reason() + " 自动重载")
+                mark("10 渲染进程崩溃 didCrash=" + detail.didCrash() + " 自动重载")
                 view.reload()
                 return true
             }

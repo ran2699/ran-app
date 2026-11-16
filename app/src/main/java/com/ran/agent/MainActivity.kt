@@ -166,6 +166,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
     }
 
     private fun showCrash(t: Throwable) {
+        if (::dbg.isInitialized) dbg.visibility = View.VISIBLE
         val tv = TextView(this).apply {
             textSize = 12f
             setTextIsSelectable(true)
@@ -208,6 +209,8 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             setTextColor(0xFF00FF00.toInt())
             setBackgroundColor(0x88000000.toInt())
             setPadding(dp(8), dp(90), dp(8), dp(8))
+            // 默认隐藏：调试信息会盖住顶栏，只有崩溃时才浮出来
+            visibility = View.GONE
         }
         root.addView(dbg, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         mark("1 进程启动")

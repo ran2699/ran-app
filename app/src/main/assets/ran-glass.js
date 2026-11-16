@@ -44,15 +44,32 @@
     if (botEl) ro.observe(botEl);
   }
 
-  /* ---------- 3. 滚动状态（折射层淡出） ---------- */
+  /* ---------- 3. 滚动时重抓折射快照 ----------
+     背景：liquidGL 只监听 window.scrollY，而 #chat 是内部滚动容器，
+     所以滚动时纹理不会自动更新 —— 这正是「滑动时没有折射」的原因。
+     解法：监听 #chat 的 scroll，节流调 renderer.captureSnapshot()。
+     内部有 _capturing 锁，过密的调用会被自动跳过，天然限流。 ---------- */
   function watchScroll() {
     var chat = D.getElementById('chat');
     if (!chat) return;
-    var t = null;
+    var lastT = 0, timer = null;
+
+    function recapture() {
+      var r = W.__liquidGLRenderer__;
+      if (!r || typeof r.captureSnapshot !== 'function') return;
+      try { r.captureSnapshot(); } catch (e) { }
+    }
+
     chat.addEventListener('scroll', function () {
       D.body.classList.add('rg-scrolling');
-      clearTimeout(t);
-      t = setTimeout(function () { D.body.classList.remove('rg-scrolling'); }, 220);
+      var now = Date.now();
+      // 110ms ≈ 9 次/秒：足够跟上手指，又不至于每帧全量光栅化
+      if (now - lastT > 110) { lastT = now; recapture(); }
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        D.body.classList.remove('rg-scrolling');
+        recapture();           // 停下后补一帧精确的
+      }, 180);
     }, { passive: true });
   }
 
@@ -84,12 +101,14 @@
         refraction: 0.075,
         bevelWidth: 0.15,
         bevelDepth: 0.22,
-        // 色散：红蓝分向偏移，是「液态玻璃」区别于磨砂的关键
-        aberration: 0.6,
-        frost: 0,
+        // 色散：只该在极窄边缘出现一丝彩边。
+        // 0.6 会整圈彩虹化（上一版你看到的「奇怪的彩色」就是这个），苹果量级约 0.15~0.2
+        aberration: 0.16,
+        // 轻微模糊：完全 0 会让玻璃显得「就是块透明板」，加一点才有材质感
+        frost: 0.32,
         specular: true,
         shadow: false,
-        tint: 'rgba(255,255,255,0.04)',
+        tint: 'rgba(255,255,255,0.08)',
         // Q 弹：手指按上去，表面像黏稠液体一样被推开再回弹
         interaction: 'fluid',
         interactionStrength: 0.45,

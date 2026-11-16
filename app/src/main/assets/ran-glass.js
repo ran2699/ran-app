@@ -77,7 +77,8 @@
   var lensOn = false;
   // 注意：#in 是可编辑输入框，liquidGL 用快照复制内容，打字的字不会实时进折射层，
   // 会导致输入时看不到自己打的字。输入框继续用 CSS 玻璃（视觉上仍是搜索栏质感）。
-  var LENS_SEL = '#burger, #mnew, #dots, #dagentbtn, #inbig, #plusbtn, #rg-in-bed';
+  // 只用 6 个小按钮做折射。输入框 #in 不参与（大块区域易采样越界，且打字不进快照）
+  var LENS_SEL = '#burger, #mnew, #dots, #dagentbtn, #inbig, #plusbtn';
   /* 状态回报：直接写到输入框的占位文字里，不遮挡任何界面 */
   function setStatus(txt) {
     var inp = D.getElementById('in');
@@ -165,14 +166,14 @@
         target: '.rg-lens',
         resolution: 1.25,
         // 透镜主体：整块轻微放大/位移，边缘再叠加深斜面 —— 折射主要发生在边缘
-        // 苹果 Spotlight 搜索栏的斜面包裹很大一块（约占高度 1/4），
-        // 所以 bevelWidth 必须大，折射才「看得见」
-        refraction: 0.135,
-        bevelWidth: 0.28,
-        bevelDepth: 0.30,
+        // 收敛档：上一版 0.135/0.28 过强，导致纹理采样越界出现彩条撕裂。
+        // 小按钮上这组值已经能明确看出边缘弯折。
+        refraction: 0.045,
+        bevelWidth: 0.10,
+        bevelDepth: 0.12,
         // 色散：只该在极窄边缘出现一丝彩边。
         // 0.6 会整圈彩虹化（上一版你看到的「奇怪的彩色」就是这个），苹果量级约 0.15~0.2
-        aberration: 0.18,
+        aberration: 0.05,
         // frost=0.32 会把整个透镜涂成乳白（上一版「太白」的元凶）。
         // 苹果的玻璃中心几乎是通透的，白色只出现在边缘高光和斜面上。
         frost: 0.02,

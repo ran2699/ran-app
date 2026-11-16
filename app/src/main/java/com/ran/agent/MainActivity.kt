@@ -17,6 +17,7 @@ import android.graphics.BitmapFactory
 import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory
 import android.view.animation.DecelerateInterpolator
 import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError

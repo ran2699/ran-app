@@ -89,8 +89,8 @@ html body #inputzone{
   mask-image:linear-gradient(to top,#000 0%,#000 9%,transparent 34%);
 }
 .rg-fog > b{ position:absolute; left:0; right:0; top:0; bottom:0; display:block; pointer-events:none; }
-.rg-fog-top > b{ background:linear-gradient(to bottom, rgba(255,255,255,.34) 0%, rgba(255,255,255,.20) 55%, rgba(255,255,255,0) 100%); }
-.rg-fog-bot > b{ background:linear-gradient(to top, rgba(255,255,255,.36) 0%, rgba(255,255,255,.22) 52%, rgba(255,255,255,0) 100%); }
+.rg-fog-top > b{ background:linear-gradient(to bottom, rgba(255,255,255,.10) 0%, rgba(255,255,255,.05) 55%, rgba(255,255,255,0) 100%); }
+.rg-fog-bot > b{ background:linear-gradient(to top, rgba(255,255,255,.10) 0%, rgba(255,255,255,.05) 52%, rgba(255,255,255,0) 100%); }
 
 /* ---------- 玻璃材质 ---------- */
 html body #mhead > button,
@@ -209,6 +209,22 @@ html body .srow + .srow{ border-top:1px solid rgba(255,255,255,.55) !important; 
 html body .rg-lens{
   pointer-events:auto !important;
   -webkit-tap-highlight-color:transparent;
+  /* 关键：不要在这里给 background，否则 !important 会压过库设的透明，
+     按钮就会一直是白色实心（前几版「纯白」的真因）。底色由 JS 用内联
+     !important 强制透明，无法被任何样式表覆盖。 */
+}
+
+/* 折射开启后，按钮只剩"玻璃边缘"：外描边 + 内高光，中心完全通透 */
+html body.rg-lens-on .rg-lens{
+  background:transparent !important;
+  border:1px solid rgba(255,255,255,.55) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.95),
+    inset 0 -1px 0 rgba(255,255,255,.40),
+    inset 0 0 12px rgba(255,255,255,.16),
+    0 6px 18px -8px rgba(16,16,24,.22) !important;
+  -webkit-backdrop-filter:none !important;
+  backdrop-filter:none !important;
 }
 html body.rg-lens-on .rg-lens{
   /* 背景交给 liquidGL（它自己会把 el.style.background 置为 transparent）；
@@ -281,3 +297,44 @@ html body #inputzone{
   backdrop-filter:none !important;
 }
 
+
+
+/* ============================================================
+   输入框的折射底层
+   #in 自己被折射会导致"打的字看不见"（库用快照渲染）。
+   做法：在 #in 正下方铺一层同样大小的固定玻璃床，只让床折射，
+   #in 保持透明背景、文字清晰 —— 视觉上就是苹果搜索栏的鼓包。
+   ============================================================ */
+html body #rg-in-bed{
+  position:fixed !important;
+  pointer-events:none !important;
+  z-index:64 !important;
+  border-radius:24px !important;
+  /* 库接管前的兜底 */
+  background:linear-gradient(180deg, rgba(255,255,255,.34), rgba(255,255,255,.18));
+  border:1px solid rgba(255,255,255,.62);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.98),
+    inset 0 -12px 24px -18px rgba(16,16,24,.30),
+    0 10px 30px -14px rgba(16,16,24,.24);
+}
+html body.rg-lens-on #rg-in-bed{
+  background:transparent !important;
+  border:1px solid rgba(255,255,255,.62) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.98),
+    inset 0 -1px 0 rgba(255,255,255,.45),
+    inset 0 0 16px rgba(255,255,255,.18),
+    0 10px 30px -14px rgba(16,16,24,.26) !important;
+  -webkit-backdrop-filter:none !important;
+  backdrop-filter:none !important;
+}
+/* 折射生效后 #in 让出底色，透出下面的折射 */
+html body.rg-lens-on #in{
+  background:transparent !important;
+  -webkit-backdrop-filter:none !important;
+  backdrop-filter:none !important;
+  box-shadow:none !important;
+  border-color:transparent !important;
+  position:relative; z-index:65;
+}

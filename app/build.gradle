@@ -2,45 +2,20 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
 }
-
-// 固定 debug 签名：让测试版各次构建可互相覆盖升级。
-// keystore 以 base64 文本提交，首次构建时解码还原（PKCS12，仅测试用途）。
-def ksDir = new File(rootProject.projectDir, "keystore")
-def ksFile = new File(ksDir, "ran-test.p12")
-if (!ksFile.exists()) {
-    ksDir.mkdirs()
-    ksFile.bytes = java.util.Base64.mimeDecoder.decode(new File(ksDir, "ran-test.p12.b64").text)
-}
-
 android {
     namespace 'com.ran.agent'
     compileSdk 34
-
-    signingConfigs {
-        glass {
-            storeFile ksFile
-            storePassword "ranglass"
-            keyAlias "ran-test"
-            keyPassword "ranglass"
-            storeType "PKCS12"
-        }
-    }
-
     defaultConfig {
-        // 独立包名：与正式版 com.ran.agent 共存，互不覆盖
-        applicationId "com.ran.agent.glass"
+        applicationId "com.ran.agent"
         minSdk 24
         targetSdk 34
-        versionCode 1001
-        versionName "1.0-glass1"
+        versionCode 1
+        versionName "1.0"
     }
     buildTypes {
-        debug {
-            signingConfig signingConfigs.glass
-        }
+        debug {}
         release {
             minifyEnabled false
-            signingConfig signingConfigs.glass
         }
     }
     compileOptions {
@@ -52,5 +27,11 @@ android {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.activity:activity-ktx:1.9.3'
+}
+dependencies {
     implementation 'androidx.core:core-splashscreen:1.0.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.activity:activity-ktx:1.9.3'
+    // 液态玻璃：AGSL 真 SDF 折射（API 33+），低版本走 C++ 回退
+    implementation 'com.github.QWEA0:liquidglass:v2.0.11'
 }

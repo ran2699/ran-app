@@ -8,6 +8,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
+import android.util.Base64
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -21,6 +22,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -30,6 +32,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 
@@ -44,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var splashView: View
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pageReady = false
+    private var fallbackScript: String? = null
     private var startAt = 0L
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -76,6 +81,41 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
     private fun showError() {
         web.loadDataWithBaseURL("https://ran.ran-ai.pro/", errorHtml, "text/html", "utf-8", null)
+    }
+
+    /**
+     * 注入液态玻璃外壳。
+     * 只在 APK 侧生效：所有选择器带 html.ran-shell-android 前缀，
+     * 服务器文件零改动，鸿蒙端与电脑端不受影响。
+     */
+    private fun injectShell() {
+        val ua = web.settings.userAgentString ?: ""
+        if (!ua.contains("RANShell")) web.settings.userAgentString = "$ua RANShell/1.0"
+
+        val css = runCatching {
+            assets.open("shell-android.css").bufferedReader().use { it.readText() }
+        }.getOrElse { mark("注入 CSS 失败: " + it); return }
+        val tpl = runCatching {
+            assets.open("shell-inject.js").bufferedReader().use { it.readText() }
+        }.getOrElse { mark("注入 JS 失败: " + it); return }
+
+        val b64 = Base64.encodeToString(css.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val script = tpl.replace("__CSS_B64__", b64)
+
+        val origins = setOf("https://ran.ran-ai.pro", "http://100.103.73.74:8000")
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                WebViewCompat.addDocumentStartJavaScript(web, script, origins)
+                mark("注入 document-start 已挂载")
+            } else {
+                fallbackScript = script
+                mark("注入 内核过旧，退化 onPageFinished")
+            }
+        } catch (t: Throwable) {
+            fallbackScript = script
+            mark("注入 异常退化 " + t)
+        }
+        mark("注入 CSS " + css.length + "B / JS " + tpl.length + "B")
     }
 
     private fun dismissSplash() {
@@ -231,6 +271,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             mediaPlaybackRequiresUserGesture = false
         }
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
+        injectShell()
         mark("5 设置完成")
 
         web.webViewClient = object : WebViewClient() {
@@ -255,6 +296,10 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
             override fun onPageFinished(view: WebView, url: String) {
                 mark("8 页面加载完成")
+                fallbackScript?.let {
+                    view.evaluateJavascript(it, null)
+                    mark("注入 onPageFinished 补注入完成")
+                }
                 if (!pageReady) {
                     pageReady = true
                     dismissSplash()

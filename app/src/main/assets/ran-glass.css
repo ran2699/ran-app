@@ -199,3 +199,23 @@ html body .srow + .srow{ border-top:1px solid rgba(255,255,255,.55) !important; 
 
 .rg-lens-canvas{ transition:opacity .18s ease; }
 html body.rg-scrolling .rg-lens-canvas{ opacity:0 !important; }
+
+
+/* ============================================================
+   折射层接管后的修正
+   1) liquidGL 会把目标元素设成 pointer-events:none（防误触），
+      但那会让按钮和输入框完全点不动 —— 必须抢回来。
+   2) 折射由 canvas 呈现，元素自身的白底会把玻璃盖住，改为透明。
+   ============================================================ */
+html body .rg-lens{
+  pointer-events:auto !important;
+  -webkit-tap-highlight-color:transparent;
+}
+html body.rg-lens-on .rg-lens{
+  background:transparent !important;
+  border-color:transparent !important;
+  box-shadow:none !important;
+  -webkit-backdrop-filter:none !important;
+  backdrop-filter:none !important;
+}
+/* 折射失败时保留磨砂兜底（默认样式仍在，这里不覆盖） */

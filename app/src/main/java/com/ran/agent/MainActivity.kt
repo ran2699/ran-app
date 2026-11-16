@@ -25,6 +25,7 @@ import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -348,6 +349,11 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 必须在 super.onCreate 之前：manifest 的主题是 Theme.SplashScreen，
+        // 不调用它，AppCompatActivity 会因为「不是 AppCompat 主题」直接崩。
+        try {
+            installSplashScreen()
+        } catch (t: Throwable) { }
         try { super.onCreate(savedInstanceState) } catch (t: Throwable) { showCrash(t); return }
         try { buildUi() } catch (t: Throwable) { showCrash(t); return }
     }

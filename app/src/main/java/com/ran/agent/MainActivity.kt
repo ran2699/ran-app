@@ -44,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var splashView: View
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pageReady = false
+    private var glassInjected = false
     private var startAt = 0L
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -69,6 +70,43 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 """.trimIndent()
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    // ---- 液态玻璃注入：只在安卓端运行时改材质，网页/鸿蒙/桌面不受影响 ----
+    private fun injectGlassCss() {
+        try {
+            val css = assets.open("ran-glass.css").bufferedReader().use { it.readText() }
+            val quoted = org.json.JSONObject.quote(css)
+            web.evaluateJavascript(
+                "(function(){if(document.getElementById('ran-glass-style'))return;" +
+                        "var s=document.createElement('style');s.id='ran-glass-style';" +
+                        "s.textContent=" + quoted + ";document.head.appendChild(s);})();",
+                null
+            )
+        } catch (t: Throwable) {
+            mark("G1 CSS注入失败 " + t.message)
+        }
+    }
+
+    private fun injectGlassJs() {
+        try {
+            if (glassInjected) {
+                web.evaluateJavascript("window.__rgGlassRetag&&window.__rgGlassRetag();", null)
+                return
+            }
+            val lib = assets.open("liquid-gl.js").bufferedReader().use { it.readText() }
+            val run = assets.open("ran-glass.js").bufferedReader().use { it.readText() }
+            web.evaluateJavascript(lib, null)
+            web.evaluateJavascript(run, null)
+            glassInjected = true
+            mark("G2 玻璃注入完成")
+        } catch (t: Throwable) {
+            mark("G2 注入失败 " + t.message)
+        }
+    }
+
+    private fun isAppUrl(url: String): Boolean {
+        return url.startsWith("https://ran.ran-ai.pro") || url.startsWith("http://100.103.73.74:8000")
+    }
 
     private fun mark(s: String) {
         if (::dbg.isInitialized) runOnUiThread { dbg.text = dbg.text.toString() + "\n" + s }
@@ -242,6 +280,11 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                 mark("7 页面开始加载")
+                glassInjected = false
+            }
+
+            override fun onPageCommitVisible(view: WebView, url: String) {
+                if (isAppUrl(url)) injectGlassCss()
             }
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -258,6 +301,10 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
                 if (!pageReady) {
                     pageReady = true
                     dismissSplash()
+                }
+                if (isAppUrl(url)) {
+                    injectGlassCss()
+                    injectGlassJs()
                 }
             }
 

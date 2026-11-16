@@ -1,0 +1,390 @@
+/* ==========================================================================
+   RAN Shell Android · 液态玻璃 V1
+   仅当 <html> 带 .ran-shell-android 时生效 —— 对鸿蒙/电脑端零影响
+   所有规则强制前缀 html.ran-shell-android，禁止裸写选择器
+   ========================================================================== */
+
+html.ran-shell-android{
+
+  /* --- 玻璃材质 tokens --- */
+  --lg-hi: rgba(255,255,255,.86);
+  --lg-lo: rgba(255,255,255,.38);
+  --lg-bd: rgba(255,255,255,.82);
+  --lg-rim: rgba(255,255,255,.95);
+  --lg-rim2: rgba(255,255,255,.30);
+  --lg-sh: 0 1px 1px rgba(0,0,0,.045), 0 10px 30px -14px rgba(20,20,45,.20);
+  --lg-blur: 22px;
+
+  --lg-quiet: rgba(118,118,128,.10);
+  --lg-hair: rgba(60,60,67,.12);
+
+  /* 渐进模糊带的长度（距边缘多远完全消失） */
+  --fade-top: 46px;
+  --fade-bot: 52px;
+}
+
+html.ran-shell-android.dark{
+  --lg-hi: rgba(255,255,255,.16);
+  --lg-lo: rgba(255,255,255,.04);
+  --lg-bd: rgba(255,255,255,.18);
+  --lg-rim: rgba(255,255,255,.55);
+  --lg-rim2: rgba(255,255,255,.06);
+  --lg-sh: 0 1px 1px rgba(0,0,0,.55), 0 14px 36px -16px rgba(0,0,0,.9);
+  --lg-quiet: rgba(118,118,128,.24);
+  --lg-hair: rgba(255,255,255,.12);
+}
+
+
+/* ==========================================================================
+   1. 上下硬分界 → 渐进高斯模糊
+   --------------------------------------------------------------------------
+   #mhead / #inputzone 是 flex:none 的流内元素，铺实白底，靠 border 分界。
+   手段：底色改半透明 + 边缘向外羽化，不改变任何布局与滚动行为。
+   ========================================================================== */
+
+html.ran-shell-android #mhead{
+  position:relative;
+  background:transparent;
+  border-bottom:0 !important;
+  box-shadow:none !important;
+}
+html.ran-shell-android.dark #mhead{
+  background:transparent;
+}
+
+/* 顶栏自身那层玻璃 */
+html.ran-shell-android #mhead::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(to bottom,
+    rgba(255,255,255,.92) 0%,
+    rgba(255,255,255,.74) 100%);
+  -webkit-backdrop-filter:blur(24px) saturate(180%);
+  backdrop-filter:blur(24px) saturate(180%);
+  z-index:-1;
+  pointer-events:none;
+}
+html.ran-shell-android.dark #mhead::before{
+  background:linear-gradient(to bottom,
+    rgba(0,0,0,.86) 0%,
+    rgba(0,0,0,.64) 100%);
+}
+
+/* 顶栏下缘向外羽化：内容滚到此处逐渐溶解，没有一条线 */
+html.ran-shell-android #mhead::after{
+  content:"";
+  position:absolute;
+  left:0; right:0; top:100%;
+  height:var(--fade-top);
+  pointer-events:none;
+  z-index:-1;
+  background:linear-gradient(to bottom,
+    rgba(255,255,255,.55) 0%,
+    rgba(255,255,255,0) 100%);
+  -webkit-backdrop-filter:blur(10px);
+  backdrop-filter:blur(10px);
+  -webkit-mask-image:linear-gradient(to bottom,#000 0%,transparent 100%);
+  mask-image:linear-gradient(to bottom,#000 0%,transparent 100%);
+}
+html.ran-shell-android.dark #mhead::after{
+  background:linear-gradient(to bottom,
+    rgba(0,0,0,.50) 0%,
+    rgba(0,0,0,0) 100%);
+}
+
+/* ---- 输入区 ---- */
+html.ran-shell-android #inputzone{
+  position:relative;
+  background:transparent;
+  border-top:0 !important;
+  box-shadow:none !important;
+}
+html.ran-shell-android #inputzone::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(to top,
+    rgba(255,255,255,.94) 0%,
+    rgba(255,255,255,.72) 100%);
+  -webkit-backdrop-filter:blur(24px) saturate(180%);
+  backdrop-filter:blur(24px) saturate(180%);
+  z-index:-1;
+  pointer-events:none;
+}
+html.ran-shell-android.dark #inputzone::before{
+  background:linear-gradient(to top,
+    rgba(0,0,0,.88) 0%,
+    rgba(0,0,0,.62) 100%);
+}
+
+/* 输入区上缘向上羽化 */
+html.ran-shell-android #inputzone::after{
+  content:"";
+  position:absolute;
+  left:0; right:0; bottom:100%;
+  height:var(--fade-bot);
+  pointer-events:none;
+  z-index:-1;
+  background:linear-gradient(to top,
+    rgba(255,255,255,.58) 0%,
+    rgba(255,255,255,0) 100%);
+  -webkit-backdrop-filter:blur(10px);
+  backdrop-filter:blur(10px);
+  -webkit-mask-image:linear-gradient(to top,#000 0%,transparent 100%);
+  mask-image:linear-gradient(to top,#000 0%,transparent 100%);
+}
+html.ran-shell-android.dark #inputzone::after{
+  background:linear-gradient(to top,
+    rgba(0,0,0,.52) 0%,
+    rgba(0,0,0,0) 100%);
+}
+
+/* z-index:-1 的伪元素需要父级形成层叠上下文，否则会落到页面底下 */
+html.ran-shell-android #mhead,
+html.ran-shell-android #inputzone{ isolation:isolate; }
+
+
+/* ==========================================================================
+   2. 按钮 → 液态玻璃
+   ========================================================================== */
+
+html.ran-shell-android #burger,
+html.ran-shell-android #mnew,
+html.ran-shell-android #dots,
+html.ran-shell-android #agentbtn,
+html.ran-shell-android #plusbtn,
+html.ran-shell-android #sendbtn,
+html.ran-shell-android #sclose,
+html.ran-shell-android #dagentbtn{
+  background:linear-gradient(180deg,var(--lg-hi),var(--lg-lo)) !important;
+  border:0 !important;
+  color:inherit !important;
+  -webkit-backdrop-filter:blur(var(--lg-blur)) saturate(180%);
+  backdrop-filter:blur(var(--lg-blur)) saturate(180%);
+  box-shadow:
+    inset 0 0 0 .5px var(--lg-bd),
+    inset 0 1px 0 var(--lg-rim),
+    inset 0 -1px 0 var(--lg-rim2),
+    var(--lg-sh) !important;
+  transition:transform .16s ease, box-shadow .16s ease;
+}
+
+html.ran-shell-android #burger,
+html.ran-shell-android #mnew,
+html.ran-shell-android #dots{
+  border-radius:50% !important;
+}
+
+html.ran-shell-android #agentbtn{
+  border-radius:999px !important;
+}
+
+/* 按下反馈：只缩放，不变色 */
+html.ran-shell-android #burger:active,
+html.ran-shell-android #mnew:active,
+html.ran-shell-android #dots:active,
+html.ran-shell-android #agentbtn:active,
+html.ran-shell-android #plusbtn:active,
+html.ran-shell-android #sclose:active,
+html.ran-shell-android #dagentbtn:active{
+  transform:scale(.94);
+}
+
+/* 发送键保持实心（它是主行动，不该是玻璃） */
+html.ran-shell-android #sendbtn{
+  background:#1a1a1c !important;
+  color:#f4f4f5 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.18),
+    0 6px 18px -8px rgba(0,0,0,.5) !important;
+}
+html.ran-shell-android.dark #sendbtn{
+  background:#f4f4f5 !important;
+  color:#1a1a1c !important;
+}
+html.ran-shell-android #sendbtn:active{
+  transform:scale(.95);
+}
+
+
+/* ==========================================================================
+   3. 输入框 → 苹果设置页搜索栏材质
+   ========================================================================== */
+
+html.ran-shell-android #inwrap{
+  position:relative;
+}
+
+/* #in 是文本域，它外面那层灰底是硬的；改成安静的灰玻璃 */
+html.ran-shell-android #in,
+html.ran-shell-android #inbig{
+  background:var(--lg-quiet) !important;
+  border:0 !important;
+  border-radius:22px !important;
+  -webkit-backdrop-filter:blur(26px) saturate(180%);
+  backdrop-filter:blur(26px) saturate(180%);
+  box-shadow:
+    inset 0 0 0 .5px var(--lg-hair),
+    inset 0 1px 0 var(--lg-rim);
+  transition:box-shadow .22s ease;
+}
+
+/* 聚焦：描边转系统蓝，无光晕 */
+html.ran-shell-android #in:focus,
+html.ran-shell-android #inbig:focus{
+  box-shadow:
+    inset 0 0 0 1px rgba(10,132,255,.34),
+    inset 0 1px 0 var(--lg-rim);
+  outline:none;
+}
+
+
+/* ==========================================================================
+   4. 二级菜单 → 玻璃面板
+   ========================================================================== */
+
+html.ran-shell-android #side,
+html.ran-shell-android #dotspanel,
+html.ran-shell-android #pluspanel,
+html.ran-shell-android #agentpanel,
+html.ran-shell-android #ctxmenu,
+html.ran-shell-android #modelpanel{
+  background:linear-gradient(180deg,var(--lg-hi),var(--lg-lo)) !important;
+  border:0 !important;
+  -webkit-backdrop-filter:blur(34px) saturate(190%);
+  backdrop-filter:blur(34px) saturate(190%);
+  box-shadow:
+    inset 0 0 0 .5px var(--lg-bd),
+    inset 0 1px 0 var(--lg-rim),
+    0 -2px 50px -10px rgba(20,20,45,.28) !important;
+}
+
+html.ran-shell-android #side{
+  border-radius:0 26px 26px 0 !important;
+}
+
+html.ran-shell-android #dotspanel,
+html.ran-shell-android #pluspanel,
+html.ran-shell-android #agentpanel,
+html.ran-shell-android #ctxmenu,
+html.ran-shell-android #modelpanel{
+  border-radius:20px !important;
+}
+
+/* 所有 modal 容器 */
+html.ran-shell-android #setmodal > div,
+html.ran-shell-android #viewmodal > div,
+html.ran-shell-android #agentmodal > div,
+html.ran-shell-android #statmodal > div,
+html.ran-shell-android #favmodal > div,
+html.ran-shell-android #filesmodal > div,
+html.ran-shell-android #taskmodal > div,
+html.ran-shell-android #authmodal > div,
+html.ran-shell-android #permmodal > div,
+html.ran-shell-android #planmodal > div,
+html.ran-shell-android #swmodal > div,
+html.ran-shell-android #genmodal > div,
+html.ran-shell-android #cflmodal > div{
+  background:linear-gradient(180deg,var(--lg-hi),var(--lg-lo)) !important;
+  border:0 !important;
+  border-radius:26px !important;
+  -webkit-backdrop-filter:blur(34px) saturate(190%);
+  backdrop-filter:blur(34px) saturate(190%);
+  box-shadow:
+    inset 0 0 0 .5px var(--lg-bd),
+    inset 0 1px 0 var(--lg-rim),
+    0 -2px 50px -10px rgba(20,20,45,.28) !important;
+}
+
+/* 列表行：去硬线，改极细分隔 */
+html.ran-shell-android .srow,
+html.ran-shell-android .setgitem,
+html.ran-shell-android .amrow{
+  border-top:0 !important;
+  box-shadow:inset 0 .5px 0 var(--lg-hair);
+  transition:background .14s ease;
+}
+html.ran-shell-android .srow:active,
+html.ran-shell-android .setgitem:active,
+html.ran-shell-android .amrow:active{
+  background:var(--lg-quiet);
+}
+
+/* 设置里的搜索栏 */
+html.ran-shell-android #searchin,
+html.ran-shell-android #set-search,
+html.ran-shell-android #sesssearch{
+  background:var(--lg-quiet) !important;
+  border:0 !important;
+  border-radius:11px !important;
+  box-shadow:inset 0 0 0 .5px var(--lg-hair);
+}
+
+/* 小按钮统一玻璃 */
+html.ran-shell-android .mini-btn,
+html.ran-shell-android .qbtn,
+html.ran-shell-android .pgbtn,
+html.ran-shell-android .cornerbtn{
+  background:linear-gradient(180deg,var(--lg-hi),var(--lg-lo)) !important;
+  border:0 !important;
+  box-shadow:
+    inset 0 0 0 .5px var(--lg-bd),
+    inset 0 1px 0 var(--lg-rim) !important;
+  transition:transform .16s ease;
+}
+html.ran-shell-android .mini-btn:active,
+html.ran-shell-android .qbtn:active,
+html.ran-shell-android .pgbtn:active{
+  transform:scale(.96);
+}
+
+
+/* ==========================================================================
+   5. 降级：不支持 backdrop-filter 时退回半透明实底
+   （minSdk 24，Android 7 的老 WebView 会走这里）
+   ========================================================================== */
+
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  html.ran-shell-android #mhead::before{ background:rgba(255,255,255,.96) }
+  html.ran-shell-android #inputzone::before{ background:rgba(255,255,255,.97) }
+  html.ran-shell-android #mhead::after,
+  html.ran-shell-android #inputzone::after{ display:none }
+  html.ran-shell-android #burger,
+  html.ran-shell-android #mnew,
+  html.ran-shell-android #dots,
+  html.ran-shell-android #agentbtn,
+  html.ran-shell-android #plusbtn{
+    background:rgba(255,255,255,.92) !important;
+  }
+  html.ran-shell-android.dark #mhead::before{ background:rgba(0,0,0,.96) }
+  html.ran-shell-android.dark #inputzone::before{ background:rgba(0,0,0,.97) }
+  html.ran-shell-android.dark #burger,
+  html.ran-shell-android.dark #mnew,
+  html.ran-shell-android.dark #dots,
+  html.ran-shell-android.dark #agentbtn,
+  html.ran-shell-android.dark #plusbtn{
+    background:rgba(40,40,44,.94) !important;
+  }
+}
+
+/* 不支持 mask 时，羽化带退化为一条纯模糊条 */
+@supports not ((mask-image:linear-gradient(#000,#000)) or (-webkit-mask-image:linear-gradient(#000,#000))){
+  html.ran-shell-android #mhead::after,
+  html.ran-shell-android #inputzone::after{ height:14px }
+}
+
+/* ==========================================================================
+   6. 减少动效偏好（无障碍 + 省电）
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce){
+  html.ran-shell-android #burger,
+  html.ran-shell-android #mnew,
+  html.ran-shell-android #dots,
+  html.ran-shell-android #agentbtn,
+  html.ran-shell-android #plusbtn,
+  html.ran-shell-android #sendbtn{
+    transition:none;
+  }
+}

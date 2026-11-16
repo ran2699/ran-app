@@ -145,6 +145,39 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         splashBg.animate().alpha(0f).setDuration(250).start()
     }
 
+    /** 诊断：AGSL（API 33+ 才有）是否可用 —— 决定玻璃走真折射还是仅模糊 */
+    private fun hasAgsl(): String = try {
+        Class.forName("android.graphics.RuntimeShader")
+        "yes"
+    } catch (t: Throwable) {
+        "no"
+    }
+
+    /** 临时探针：把系统能力显示出来，8 秒后淡出 */
+    private fun addProbePill() {
+        val tv = TextView(this).apply {
+            textSize = 11f
+            setTextColor(0xFF3A3A40.toInt())
+            setBackgroundColor(0x40FFFFFF)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            text = "Android " + android.os.Build.VERSION.RELEASE +
+                    " · API " + android.os.Build.VERSION.SDK_INT +
+                    " · AGSL:" + hasAgsl() +
+                    " · " + android.os.Build.SUPPORTED_ABIS.joinToString(",")
+        }
+        root.addView(tv, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            topMargin = dp(44)
+        })
+        tv.alpha = 0f
+        tv.animate().alpha(1f).setDuration(200).withEndAction {
+            tv.postDelayed({ tv.animate().alpha(0f).setDuration(400).start() }, 7000)
+        }.start()
+    }
+
     private inner class SpinView(context: Context) : View(context) {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFF1A1A1C.toInt()
@@ -263,16 +296,9 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(14)
             })
-            addView(TextView(context).apply {
-                text = "\u8f7d\u5165\u6570\u636e\u4e2d\u2026"
-                textSize = 13f
-                setTextColor(0xFF8F8F95.toInt())
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(8)
-            })
-            addView(SpinView(context), LinearLayout.LayoutParams(dp(40), dp(40)).apply {
-                topMargin = dp(24)
-            })
+            // 【已取消转圈】"载入数据中…" 与 SpinView 一并移除。
+            // 转圈之所以存在，是因为外壳在网页里：网页不来，屏幕就空。
+            // 原生外壳接管顶栏/输入区后，启动即成，不再有"等网页"的观感。
         }
         // 组高约 220dp：锚点 45% 处放置组的中心
         val groupTop = (resources.displayMetrics.heightPixels * ANCHOR).toInt() - dp(110)
@@ -285,6 +311,8 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         splashView.translationY = dp(14).toFloat()
         splashView.animate().alpha(1f).translationY(0f).setDuration(380)
             .setInterpolator(DecelerateInterpolator()).start()
+
+        addProbePill()
 
         web.settings.apply {
             javaScriptEnabled = true
@@ -362,7 +390,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
         Handler(Looper.getMainLooper()).postDelayed({
             if (!pageReady) dismissSplash()
-        }, 8000)
+        }, 4000)
 
         mark("6 loadUrl 已发")
         web.loadUrl("https://ran.ran-ai.pro")

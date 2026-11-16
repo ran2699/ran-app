@@ -77,17 +77,60 @@
   var lensOn = false;
   // 注意：#in 是可编辑输入框，liquidGL 用快照复制内容，打字的字不会实时进折射层，
   // 会导致输入时看不到自己打的字。输入框继续用 CSS 玻璃（视觉上仍是搜索栏质感）。
-  var LENS_SEL = '#burger, #mnew, #dots, #dagentbtn, #inbig, #plusbtn';
+  var LENS_SEL = '#burger, #mnew, #dots, #dagentbtn, #inbig, #plusbtn, #rg-in-bed';
   /* 状态回报：直接写到输入框的占位文字里，不遮挡任何界面 */
   function setStatus(txt) {
     var inp = D.getElementById('in');
     if (inp) inp.setAttribute('placeholder', txt);
   }
+  /* ---------- 输入框的折射底层 ----------
+     #in 自身不能折射（库用快照渲染，打的字不会进层 → 看不见自己输入）。
+     所以铺一层与 #in 完全重合的固定玻璃床，只让床折射，文字留在 #in 上。 */
+  function buildInputBed() {
+    var inp = D.getElementById('in');
+    if (!inp) return null;
+    var bed = D.getElementById('rg-in-bed');
+    if (!bed) {
+      bed = D.createElement('div');
+      bed.id = 'rg-in-bed';
+      bed.className = 'rg-lens';
+      bed.setAttribute('data-liquid-ignore', '');
+      (D.getElementById('main') || D.body).appendChild(bed);
+    }
+    syncInputBed();
+    return bed;
+  }
+  function syncInputBed() {
+    var inp = D.getElementById('in');
+    var bed = D.getElementById('rg-in-bed');
+    if (!inp || !bed) return;
+    var r = inp.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) { bed.style.opacity = '0'; return; }
+    bed.style.opacity = '1';
+    bed.style.top = r.top + 'px';
+    bed.style.left = r.left + 'px';
+    bed.style.width = r.width + 'px';
+    bed.style.height = r.height + 'px';
+  }
+
+  /* 强制透明：内联 !important 是无法被任何样式表覆盖的最高优先级。
+     库只设 el.style.background='transparent'（普通内联），
+     会被我们样式表里的 !important 白底压回去 —— 这就是按钮一直纯白的真因。 */
+  function forceClear(el) {
+    if (!el || !el.style) return;
+    el.style.setProperty('background', 'transparent', 'important');
+    el.style.setProperty('background-image', 'none', 'important');
+    el.style.setProperty('backdrop-filter', 'none', 'important');
+    el.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
+  }
+
   var _lensMarked = false;
   function markLensOn(how) {
     if (_lensMarked) return;
     _lensMarked = true;
     D.body.classList.add('rg-lens-on');
+    var tg = D.querySelectorAll(LENS_SEL);
+    for (var q = 0; q < tg.length; q++) forceClear(tg[q]);
     var cs = D.querySelectorAll('canvas');
     for (var k = 0; k < cs.length; k++) {
       if (!cs[k].id || cs[k].id.indexOf('rg') !== 0) cs[k].classList.add('rg-lens-canvas');
@@ -113,6 +156,7 @@
       var els = D.querySelectorAll(LENS_SEL);
       if (!els.length) { debug.push('no target'); setStatus('折射未启动：无目标'); return; }
       for (var i = 0; i < els.length; i++) els[i].classList.add('rg-lens');
+      for (var i2 = 0; i2 < els.length; i2++) forceClear(els[i2]);
       W.liquidGL({
         engine: 'auto',
         // 只快照主容器：#main 高度=视口，纹理小、光栅化快；
@@ -121,18 +165,20 @@
         target: '.rg-lens',
         resolution: 1.25,
         // 透镜主体：整块轻微放大/位移，边缘再叠加深斜面 —— 折射主要发生在边缘
-        refraction: 0.075,
-        bevelWidth: 0.15,
-        bevelDepth: 0.22,
+        // 苹果 Spotlight 搜索栏的斜面包裹很大一块（约占高度 1/4），
+        // 所以 bevelWidth 必须大，折射才「看得见」
+        refraction: 0.135,
+        bevelWidth: 0.28,
+        bevelDepth: 0.30,
         // 色散：只该在极窄边缘出现一丝彩边。
         // 0.6 会整圈彩虹化（上一版你看到的「奇怪的彩色」就是这个），苹果量级约 0.15~0.2
-        aberration: 0.16,
+        aberration: 0.18,
         // frost=0.32 会把整个透镜涂成乳白（上一版「太白」的元凶）。
         // 苹果的玻璃中心几乎是通透的，白色只出现在边缘高光和斜面上。
-        frost: 0.05,
+        frost: 0.02,
         specular: true,
         shadow: false,
-        tint: 'rgba(255,255,255,0.03)',
+        tint: 'rgba(255,255,255,0.02)',
         // Q 弹：手指按上去，表面像黏稠液体一样被推开再回弹
         interaction: 'fluid',
         interactionStrength: 0.45,
@@ -185,9 +231,15 @@
 
   function boot() {
     buildFog();
+    buildInputBed();
     watchHeights();
     watchScroll();
     watchDom();
+    // 输入框位置会随键盘/布局变化，持续对齐玻璃床
+    W.addEventListener('resize', syncInputBed);
+    D.addEventListener('focusin', function () { setTimeout(syncInputBed, 260); });
+    D.addEventListener('focusout', function () { setTimeout(syncInputBed, 260); });
+    setInterval(syncInputBed, 800);
     setTimeout(tryLens, 900);
   }
 

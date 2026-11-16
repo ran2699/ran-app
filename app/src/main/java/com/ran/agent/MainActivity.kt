@@ -46,7 +46,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
     private lateinit var root: FrameLayout
     private lateinit var dbg: TextView
-    private lateinit var topBar: LiquidGlassView
+    private lateinit var topBar: View
     private lateinit var island: LiquidGlassView
     private lateinit var input: EditText
     private var fileCallback: ValueCallback<Array<Uri>>? = null
@@ -117,77 +117,161 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         return g
     }
 
-    /* ---------------- 顶部玻璃栏 ---------------- */
+    /* ---------------- 顶部玻璃栏：三块独立玻璃，彼此留缝 ---------------- */
 
-    private fun buildTopBar(): LiquidGlassView {
-        val g = makeGlass()
-        val row = LinearLayout(this).apply {
+    private fun iconBtn(txt: String, desc: String, size: Int, onclick: () -> Unit): TextView {
+        return TextView(this).apply {
+            text = txt
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setTextColor(0xFF1A1A1C.toInt())
+            contentDescription = desc
+            setOnClickListener { onclick() }
+            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+        }
+    }
+
+    private fun clickWeb(id: String) {
+        web.evaluateJavascript(
+            "(function(){var b=document.getElementById('" + id + "');if(b){b.click();return 1}return 0})()",
+            null
+        )
+    }
+
+    private fun buildTopBar(): View {
+        val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6), dp(6), dp(6), dp(6))
+            setPadding(dp(8), 0, dp(8), 0)
         }
-        fun icon(txt: String, desc: String, onclick: () -> Unit): TextView {
-            return TextView(this).apply {
-                text = txt
-                textSize = 19f
-                gravity = Gravity.CENTER
-                setTextColor(0xFF1A1A1C.toInt())
-                contentDescription = desc
-                setOnClickListener { onclick() }
-                layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
-            }
-        }
-        row.addView(icon("\u2630", "菜单") { web.evaluateJavascript("(function(){var b=document.getElementById('burger');if(b){b.click();return 1}return 0})()", null) })
+
+        // ① 左侧：菜单，独立小玻璃
+        val gMenu = makeGlass()
+        gMenu.addView(iconBtn("\u2630", "菜单", 48) { clickWeb("burger") })
+        wrap.addView(gMenu, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
+
+        // ② 中间：标题玻璃，占满剩余宽度，但不贴边
+        val gTitle = makeGlass()
         val title = TextView(this).apply {
             text = "Orion"
             textSize = 16f
             gravity = Gravity.CENTER
             setTextColor(0xFF1A1A1C.toInt())
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
-        row.addView(title)
-        row.addView(icon("\uFF0B", "新建会话") { web.evaluateJavascript("(function(){var b=document.getElementById('mnew');if(b){b.click();return 1}return 0})()", null) })
-        row.addView(icon("\u22EF", "更多") { web.evaluateJavascript("(function(){var b=document.getElementById('dots');if(b){b.click();return 1}return 0})()", null) })
-        g.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        return g
+        gTitle.addView(title)
+        wrap.addView(gTitle, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(8) })
+
+        // ③ 右侧：新建 + 更多，两块图标共用一块玻璃（与参考图一致）
+        val gRight = makeGlass()
+        val rightRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        rightRow.addView(iconBtn("\uFF0B", "新建会话", 44) { clickWeb("mnew") })
+        rightRow.addView(iconBtn("\u22EF", "更多", 44) { clickWeb("dots") })
+        gRight.addView(rightRow, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER))
+        wrap.addView(gRight, LinearLayout.LayoutParams(dp(92), dp(48)))
+        return wrap
     }
 
     /* ---------------- 底部玻璃输入岛 ---------------- */
 
+    private companion object {
+        const val H_COLLAPSE = 56
+        const val H_EXPAND = 152
+    }
+
+    private lateinit var btnRow: LinearLayout
+    private var islandExpanded = false
+
+    private fun circle(size: Int, color: Int, text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 17f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+        }
+    }
+
     private fun buildIsland(): LiquidGlassView {
         val g = makeGlass()
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(4), dp(6), dp(4))
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(2), dp(14), dp(2))
         }
+
         input = EditText(this).apply {
-            hint = "输入任务，回车发送"
+            hint = "\u5c3d\u7ba1\u95ee"     // 「尽管问」——短，不铺满
             textSize = 15f
             setTextColor(0xFF1A1A1C.toInt())
             setHintTextColor(0xFF9A9AA0.toInt())
             background = null
-            isSingleLine = false
-            maxLines = 4
             setPadding(0, dp(10), 0, dp(10))
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setOnFocusChangeListener { _, has -> if (has) expandIsland(true) }
         }
-        row.addView(input)
-        val send = TextView(this).apply {
-            text = "发送"
-            textSize = 15f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                cornerRadius = dp(20).toFloat()
-                setColor(0xFF1A1A1C.toInt())
-            }
-            layoutParams = LinearLayout.LayoutParams(dp(66), dp(40)).apply { marginStart = dp(8) }
-            setOnClickListener { doSend() }
+        col.addView(input)
+
+        btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44))
+            visibility = View.GONE
+            alpha = 0f
         }
-        row.addView(send)
-        g.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val plus = circle(38, 0xFFEFF0F2.toInt(), "\uFF0B").apply {
+            setTextColor(0xFF1A1A1C.toInt())
+            setOnClickListener { clickWeb("plusbtn") }
+        }
+        btnRow.addView(plus)
+        btnRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        val send = circle(38, 0xFF1A1A1C.toInt(), "\u2191").apply {
+            setOnClickListener { doSend(); expandIsland(false) }
+        }
+        btnRow.addView(send)
+        col.addView(btnRow)
+
+        g.addView(col, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         return g
+    }
+
+    /** 聚焦展开：长条 → 更高的圆角矩形，两个圆钮落到下方 */
+    private fun expandIsland(on: Boolean) {
+        if (islandExpanded == on) return
+        islandExpanded = on
+        val from = island.layoutParams.height
+        val to = dp(if (on) H_EXPAND else H_COLLAPSE)
+        if (from != to) {
+            val va = android.animation.ValueAnimator.ofInt(from, to)
+            va.duration = 240
+            va.interpolator = android.view.animation.PathInterpolator(0.2f, 0.9f, 0.2f, 1f)
+            va.addUpdateListener { a ->
+                (island.layoutParams as FrameLayout.LayoutParams).height = a.animatedValue as Int
+                island.requestLayout()
+            }
+            va.start()
+        }
+        if (on) {
+            btnRow.visibility = View.VISIBLE
+            btnRow.animate().alpha(1f).setDuration(200).start()
+        } else {
+            btnRow.animate().alpha(0f).setDuration(140).withEndAction {
+                if (!islandExpanded) btnRow.visibility = View.GONE
+            }.start()
+        }
+        input.maxLines = if (on) 4 else 1
+        syncShellCss()
     }
 
     /** 把文字交给网页发送：写进 #in 再点 #sendbtn，不绕过网页自身的逻辑 */
@@ -206,9 +290,11 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
     /* ---------------- 注入：只让网页让位，不改任何逻辑 ---------------- */
 
-    private fun injectShellCss() {
-        val topPx = dp(56) + insTop
-        val botPx = dp(76) + insBottom
+    private fun syncShellCss() {
+        if (!this::web.isInitialized || !pageReady) return
+        val islandH = if (this::island.isInitialized) island.layoutParams.height else dp(H_COLLAPSE)
+        val topPx = dp(56) + insTop + dp(6)
+        val botPx = islandH + dp(20) + insBottom
         val css = """
             html body #mhead{display:none!important}
             html body #inwrap{display:none!important}
@@ -297,25 +383,26 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
         island = buildIsland()
         root.addView(island, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(60)).apply {
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(H_COLLAPSE)).apply {
             gravity = Gravity.BOTTOM
             leftMargin = dp(10); rightMargin = dp(10); bottomMargin = dp(10)
         })
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, ins ->
             val sb = ins.getInsets(WindowInsetsCompat.Type.systemBars())
+            val ime = ins.getInsets(WindowInsetsCompat.Type.ime())
             insTop = sb.top
-            insBottom = sb.bottom
+            // 键盘弹出时输入岛必须抬到键盘之上，否则被挡住
+            insBottom = maxOf(sb.bottom, ime.bottom)
             (topBar.layoutParams as FrameLayout.LayoutParams).apply {
                 height = dp(56) + insTop
-                topMargin = 0
             }
+            topBar.setPadding(dp(8), insTop, dp(8), 0)
             (island.layoutParams as FrameLayout.LayoutParams).apply {
                 bottomMargin = dp(10) + insBottom
             }
-            topBar.setPadding(0, insTop, 0, 0)
-            island.requestLayout(); topBar.requestLayout()
-            if (pageReady) injectShellCss()
+            topBar.requestLayout(); island.requestLayout()
+            syncShellCss()
             ins
         }
 
@@ -338,7 +425,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             override fun onPageFinished(view: WebView, url: String) {
                 if (!isAppUrl(url)) return
                 pageReady = true
-                injectShellCss()
+                syncShellCss()
                 addProbe()
             }
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {

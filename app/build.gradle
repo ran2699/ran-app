@@ -6,11 +6,13 @@ android {
     namespace 'com.ran.agent'
     compileSdk 34
     defaultConfig {
-        applicationId "com.ran.agent"
+        // 测试包独立包名：与正式版 com.ran.agent 并存，不会覆盖也不受其 versionCode 影响
+        // 合入 main 前需改回 com.ran.agent
+        applicationId "com.ran.agent.glass"
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 100
+        versionName "1.0-glass-v1"
     }
     buildTypes {
         debug {}

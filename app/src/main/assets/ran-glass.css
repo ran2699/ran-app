@@ -211,9 +211,14 @@ html body .rg-lens{
   -webkit-tap-highlight-color:transparent;
 }
 html body.rg-lens-on .rg-lens{
+  /* 背景交给 liquidGL（它自己会把 el.style.background 置为 transparent）；
+     但边框和高光必须保留，否则透明玻璃失去轮廓，看起来像按钮消失了 */
   background:transparent !important;
-  border-color:transparent !important;
-  box-shadow:none !important;
+  border:1px solid rgba(255,255,255,.50) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.90),
+    inset 0 -1px 0 rgba(255,255,255,.34),
+    0 6px 18px -8px rgba(16,16,24,.20) !important;
   -webkit-backdrop-filter:none !important;
   backdrop-filter:none !important;
 }
@@ -264,3 +269,15 @@ html body #in:focus{
 html body.rg-scrolling .rg-fog-top > b{ opacity:.72; }
 html body.rg-scrolling .rg-fog-bot > b{ opacity:.72; }
 html body .rg-fog > b{ transition:opacity .28s ease; }
+
+/* ============================================================
+   [实验 V1f] 底部暂不模糊 —— 用于对照：玻璃下方内容保持清晰，
+   便于直接判断「折射是否真的在工作」。确认后再决定是否恢复。
+   ============================================================ */
+html body .rg-fog-bot{ display:none !important; }
+html body #inwrap,
+html body #inputzone{
+  -webkit-backdrop-filter:none !important;
+  backdrop-filter:none !important;
+}
+

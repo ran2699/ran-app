@@ -126,8 +126,8 @@ html body #in{
 }
 html body #in::placeholder{ color:#8b8b92 !important; }
 
-/* 发送键：深色玻璃 */
-html body #sendbtn{
+/* 发送键：深色玻璃。注意：.cornerbtn 规则特异性更高，这里必须带 #inwrap 才能压住 */
+html body #inwrap #sendbtn{
   background:linear-gradient(180deg, rgba(44,44,50,.94), rgba(16,16,20,.94)) !important;
   border:1px solid rgba(255,255,255,.16) !important;
   color:#fff !important;
@@ -197,7 +197,7 @@ html body .setgroup{ background:rgba(255,255,255,.34) !important; border-radius:
 html body .srow + .srow{ border-top:1px solid rgba(255,255,255,.55) !important; }
 
 .rg-lens-canvas{ transition:opacity .18s ease; }
-html body.rg-scrolling .rg-lens-canvas{ opacity:0 !important; }
+/* 滚动时保留折射：快照由 JS 节流重抓，不再整层隐藏 */
 
 
 /* ============================================================

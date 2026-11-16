@@ -329,12 +329,8 @@ html body.rg-lens-on #rg-in-bed{
   -webkit-backdrop-filter:none !important;
   backdrop-filter:none !important;
 }
-/* 折射生效后 #in 让出底色，透出下面的折射 */
-html body.rg-lens-on #in{
-  background:transparent !important;
-  -webkit-backdrop-filter:none !important;
-  backdrop-filter:none !important;
-  box-shadow:none !important;
-  border-color:transparent !important;
-  position:relative; z-index:65;
-}
+/* #in 保持自己的 CSS 玻璃（折射只在按钮上，输入框靠 CSS 材质） */
+
+
+/* 输入框玻璃床暂停使用（折射目标已移除，避免大块采样越界产生彩条） */
+html body #rg-in-bed{ display:none !important; }

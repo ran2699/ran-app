@@ -89,8 +89,8 @@ html body #inputzone{
   mask-image:linear-gradient(to top,#000 0%,#000 9%,transparent 34%);
 }
 .rg-fog > b{ position:absolute; left:0; right:0; top:0; bottom:0; display:block; pointer-events:none; }
-.rg-fog-top > b{ background:linear-gradient(to bottom, rgba(255,255,255,.90) 0%, rgba(255,255,255,.62) 55%, rgba(255,255,255,0) 100%); }
-.rg-fog-bot > b{ background:linear-gradient(to top, rgba(255,255,255,.92) 0%, rgba(255,255,255,.66) 52%, rgba(255,255,255,0) 100%); }
+.rg-fog-top > b{ background:linear-gradient(to bottom, rgba(255,255,255,.34) 0%, rgba(255,255,255,.20) 55%, rgba(255,255,255,0) 100%); }
+.rg-fog-bot > b{ background:linear-gradient(to top, rgba(255,255,255,.36) 0%, rgba(255,255,255,.22) 52%, rgba(255,255,255,0) 100%); }
 
 /* ---------- 玻璃材质 ---------- */
 html body #mhead > button,
@@ -101,9 +101,9 @@ html body .qbtn,
 html body #sclose,
 html body .setx,
 html body .setback{
-  background:linear-gradient(180deg, rgba(255,255,255,.88), rgba(255,255,255,.60)) !important;
-  border:1px solid var(--rg-edge) !important;
-  box-shadow:var(--rg-hi), var(--rg-lo), var(--rg-drop) !important;
+  background:linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.08)) !important;
+  border:1px solid rgba(255,255,255,.55) !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.85), inset 0 -1px 0 rgba(255,255,255,.30), 0 6px 18px -8px rgba(16,16,24,.22) !important;
   -webkit-backdrop-filter:blur(18px) saturate(180%);
   backdrop-filter:blur(18px) saturate(180%);
   border-radius:14px !important;
@@ -114,10 +114,9 @@ html body #dagentbtn{ border-radius:18px !important; }
 
 /* 输入框：参考 iOS 设置搜索栏 */
 html body #in{
-  background:linear-gradient(180deg, rgba(255,255,255,.74), rgba(255,255,255,.50)) !important;
-  border:1px solid rgba(255,255,255,.82) !important;
+  background:linear-gradient(180deg, rgba(255,255,255,.34), rgba(255,255,255,.18)) !important;
+  border:1px solid rgba(255,255,255,.62) !important;
   border-radius:24px !important;
-  padding-left:17px !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,.98),
     inset 0 -12px 24px -18px rgba(16,16,24,.42),
@@ -140,14 +139,14 @@ html body #sendbtn{
 
 /* 侧栏抽屉 */
 html body #side{
-  background:rgba(246,246,248,.72) !important;
+  background:rgba(246,246,248,.52) !important;
   -webkit-backdrop-filter:blur(34px) saturate(180%);
   backdrop-filter:blur(34px) saturate(180%);
   border-right:1px solid rgba(255,255,255,.62) !important;
   box-shadow:0 0 40px rgba(16,16,24,.18) !important;
 }
 html body #searchin{
-  background:rgba(255,255,255,.62) !important;
+  background:rgba(255,255,255,.42) !important;
   border:1px solid rgba(255,255,255,.8) !important;
   border-radius:14px !important;
   -webkit-backdrop-filter:blur(16px) saturate(180%);
@@ -168,10 +167,10 @@ html body #pluspanel,
 html body #permpanel,
 html body #deckwin,
 html body #todopanel{
-  background:rgba(252,252,253,.74) !important;
+  background:rgba(252,252,253,.58) !important;
   -webkit-backdrop-filter:blur(30px) saturate(180%);
   backdrop-filter:blur(30px) saturate(180%);
-  border:1px solid rgba(255,255,255,.82) !important;
+  border:1px solid rgba(255,255,255,.62) !important;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.96), 0 26px 64px -24px rgba(16,16,24,.38) !important;
   border-radius:22px !important;
 }
@@ -194,7 +193,7 @@ html body #agentmodal{
   backdrop-filter:blur(10px) saturate(130%);
 }
 
-html body .setgroup{ background:rgba(255,255,255,.52) !important; border-radius:16px !important; }
+html body .setgroup{ background:rgba(255,255,255,.34) !important; border-radius:16px !important; }
 html body .srow + .srow{ border-top:1px solid rgba(255,255,255,.55) !important; }
 
 .rg-lens-canvas{ transition:opacity .18s ease; }
@@ -219,3 +218,49 @@ html body.rg-lens-on .rg-lens{
   backdrop-filter:none !important;
 }
 /* 折射失败时保留磨砂兜底（默认样式仍在，这里不覆盖） */
+
+
+/* ============================================================
+   Q 弹：按下形变 + 回弹
+   苹果的 Liquid Glass 控件被按下时会「陷进去再弹回来」
+   ============================================================ */
+html body #mhead > button,
+html body #dagentbtn,
+html body #inbig,
+html body #plusbtn,
+html body #inputzone .cornerbtn,
+html body .qbtn{
+  transition:transform .22s cubic-bezier(.34,1.56,.64,1),
+             box-shadow .18s ease,
+             background .18s ease !important;
+  will-change:transform;
+}
+html body #mhead > button:active,
+html body #dagentbtn:active,
+html body #inbig:active,
+html body #plusbtn:active,
+html body #inputzone .cornerbtn:active,
+html body .qbtn:active{
+  transform:scale(.92);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.55),
+             inset 0 -1px 0 rgba(255,255,255,.18),
+             0 2px 6px -4px rgba(16,16,24,.30) !important;
+  transition-duration:.08s !important;
+}
+
+/* 输入框聚焦：轻微上浮 + 边缘亮起（对应苹果的 focus 反馈） */
+html body #in:focus{
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.98),
+             inset 0 -12px 24px -18px rgba(16,16,24,.30),
+             0 0 0 3px rgba(255,255,255,.42),
+             0 12px 30px -14px rgba(16,16,24,.30) !important;
+  transition:box-shadow .2s ease;
+}
+
+/* ============================================================
+   滚动时的动态：玻璃"流动"起来
+   滚动中材质变薄、边缘高光减弱 —— 模拟玻璃被推着走
+   ============================================================ */
+html body.rg-scrolling .rg-fog-top > b{ opacity:.72; }
+html body.rg-scrolling .rg-fog-bot > b{ opacity:.72; }
+html body .rg-fog > b{ transition:opacity .28s ease; }

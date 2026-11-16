@@ -102,6 +102,23 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             web.evaluateJavascript(run, null)
             glassInjected = true
             mark("G2 玻璃注入完成")
+            // 折射管线失败时把原因弹出来（成功则不打扰）
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                try {
+                    web.evaluateJavascript(
+                        "(window.__rgGlassDebug?window.__rgGlassDebug():'no-js')"
+                    ) { v ->
+                        val d = (v ?: "").trim('"')
+                        val bad = d.contains("err") || d.contains("no liquidGL") ||
+                                d.contains("no webgl") || d.contains("no-js") ||
+                                d.contains("no target")
+                        if (bad) android.widget.Toast.makeText(
+                            this@MainActivity, "玻璃诊断: " + d, android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } catch (_: Throwable) {
+                }
+            }, 2600)
         } catch (t: Throwable) {
             mark("G2 注入失败 " + t.message)
         }

@@ -94,7 +94,9 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
                 web.evaluateJavascript("window.__rgGlassRetag&&window.__rgGlassRetag();", null)
                 return
             }
-            val lib = assets.open("liquid-gl.js").bufferedReader().use { it.readText() }
+            // liquidGL 分两段存放（单文件推送有 200KB 上限），运行时拼接
+            val lib = assets.open("liquid-gl-1.js").bufferedReader().use { it.readText() } +
+                    assets.open("liquid-gl-2.js").bufferedReader().use { it.readText() }
             val run = assets.open("ran-glass.js").bufferedReader().use { it.readText() }
             web.evaluateJavascript(lib, null)
             web.evaluateJavascript(run, null)

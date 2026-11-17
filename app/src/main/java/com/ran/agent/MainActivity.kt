@@ -580,14 +580,15 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         }
         stripeView.visibility = View.GONE
         root.addView(stripeView, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { gravity = Gravity.TOP })
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
+            gravity = Gravity.TOP
+        })
 
         root.postDelayed({
             stripeView.visibility = View.VISIBLE
             // 只对顶栏那三块玻璃生效（glasses[0..2]）
             var n = 0
             for (g in glasses) {
-                if (n >= 3) break
                 callM(g, "setBackdropSource",
                     arrayOf<Class<*>>(View::class.java), arrayOf<Any?>(stripeView))
                 g.invalidate()

@@ -229,6 +229,9 @@ class MainActivity : Activity() {
             setF(s, "blurR", cfg.blurR * d)
             setF(s, "tintA", cfg.tintA)
             setF(s, "rimA", cfg.rimA)
+            // 关键：uniform 必须在创建 RenderEffect 之前写好，否则 effect 里拿到的是全 0。
+            // 所以每次改参数都重建一次 effect（开销很小，只在参数变化时发生）。
+            web.setRenderEffect(RenderEffect.createRuntimeShaderEffect(s, "content"))
             web.invalidate()
             if (rects.isNotEmpty()) {
                 val rc = rects[0]

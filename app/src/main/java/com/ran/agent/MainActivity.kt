@@ -54,7 +54,7 @@ class MainActivity : Activity() {
     private val glassTargets = ArrayList<Pair<View, Float>>()
     private var shader: RuntimeShader? = null
     private var shaderSrc = ""
-    private var cfg = GlassCfg()
+    private val cfg = LinkedHashMap<String, Float>()
 
     private var probe: TextView? = null
 
@@ -184,43 +184,39 @@ class MainActivity : Activity() {
 
     /* ---------------- 热调试配置 ---------------- */
 
-    private class GlassCfg {
-        var bevel = 14f
-        var refraction = 12f
-        var dispersion = 1.0f
-        var blurR = 20f
-        var tintA = 0.10f
-        var rimA = 0.70f
-        var falloff = 26f
-
-        override fun toString() =
-            "bevel=${bevel.toInt()} refr=${refraction.toInt()} disp=$dispersion blur=${blurR.toInt()}"
-    }
+    /**
+     * 参数表：cfg 里出现的任何 key 都按同名 uniform 写入 shader（setF 会先校验声明）。
+     * 于是在 shader 里新增参数只改 glsl + cfg 推文件即可，不必重新出包。
+     * 长度一律 dp，着色器内乘 dens 换算成设备像素。
+     */
+    private val CFG_DEFAULTS = linkedMapOf(
+        "bevel" to 8f, "refraction" to 6f, "dispersion" to 0f, "blurR" to 16f,
+        "tintA" to 0.18f, "rimA" to 1.0f, "falloff" to 18f,
+        "shadowA" to 0.20f, "shadowY" to 3f, "shadowR" to 1f,
+        "satA" to 0.05f, "detail" to 0f, "edgeA" to 0.9f, "innerH" to 0.8f
+    )
 
     private fun cfgDir() = getExternalFilesDir(null) ?: filesDir
 
-    private fun readCfg(): GlassCfg {
-        val c = GlassCfg()
-        val f = File(cfgDir(), "glass.cfg")
-        if (!f.exists()) return c
-        for (raw in f.readLines()) {
-            val line = raw.trim()
-            if (line.isEmpty() || line.startsWith("#")) continue
+    /** 设备目录优先，不存在时回退到打包的 assets/glass.cfg */
+    private fun readCfg(): LinkedHashMap<String, Float> {
+        val m = LinkedHashMap(CFG_DEFAULTS)
+        val txt = try {
+            val f = File(cfgDir(), "glass.cfg")
+            if (f.exists() && f.length() > 8) f.readText()
+            else assets.open("glass.cfg").bufferedReader().use { it.readText() }
+        } catch (_: Throwable) {
+            return m
+        }
+        for (raw in txt.lineSequence()) {
+            val line = raw.substringBefore('#').trim()
+            if (line.isEmpty()) continue
             val i = line.indexOf('=')
             if (i <= 0) continue
-            val k = line.substring(0, i).trim()
             val v = line.substring(i + 1).trim().toFloatOrNull() ?: continue
-            when (k) {
-                "bevel" -> c.bevel = v
-                "refraction" -> c.refraction = v
-                "dispersion" -> c.dispersion = v
-                "blurR" -> c.blurR = v
-                "tintA" -> c.tintA = v
-                "rimA" -> c.rimA = v
-                "falloff" -> c.falloff = v
-            }
+            m[line.substring(0, i).trim()] = v
         }
-        return c
+        return m
     }
 
     private fun readShaderSrc(): String {
@@ -232,7 +228,8 @@ class MainActivity : Activity() {
     }
 
     private fun applyConfig(why: String) {
-        cfg = readCfg()
+        cfg.clear()
+        cfg.putAll(readCfg())
         if (Build.VERSION.SDK_INT < 33) {
             showProbe("API " + Build.VERSION.SDK_INT + " · 需要 API 33+ 才能折射")
             return
@@ -245,11 +242,26 @@ class MainActivity : Activity() {
             val eff = RenderEffect.createRuntimeShaderEffect(s, "content")
             web.setRenderEffect(eff)
             applyRects()
-            Log.i(TAG, "shader OK why=" + why + " " + cfg.toString())
-            showProbe("玻璃已载入 · " + cfg.toString())
+            val brief = "bevel=" + cfg["bevel"] + " refr=" + cfg["refraction"] +
+                    " blur=" + cfg["blurR"] + " tint=" + cfg["tintA"]
+            Log.i(TAG, "shader OK why=" + why + " " + brief)
+            showProbe("玻璃已载入 · " + brief)
         } catch (t: Throwable) {
             Log.e(TAG, "shader FAIL " + (t.message ?: ""), t)
             showProbe("shader 出错：" + t.javaClass.simpleName)
+            // 设备目录里的 shader 编译失败时回退到打包版，避免热调试把界面弄坏
+            try {
+                val fb = assets.open("glass.glsl").bufferedReader().use { it.readText() }
+                if (fb != shaderSrc) {
+                    shaderSrc = fb
+                    lastRectKey = ""
+                    val s2 = RuntimeShader(fb)
+                    shader = s2
+                    web.setRenderEffect(RenderEffect.createRuntimeShaderEffect(s2, "content"))
+                    applyRects()
+                    Log.i(TAG, "shader 已回退到 assets 版本")
+                }
+            } catch (_: Throwable) {}
         }
     }
 
@@ -269,7 +281,7 @@ class MainActivity : Activity() {
         val d = resources.displayMetrics.density
         val rects = ArrayList<FloatArray>()
         for ((v, r) in glassTargets) {
-            if (rects.size >= 4) break
+            if (rects.size >= 6) break
             if (v.width <= 0 || v.height <= 0 || v.visibility != View.VISIBLE) continue
             val loc = IntArray(2)
             v.getLocationOnScreen(loc)
@@ -288,7 +300,7 @@ class MainActivity : Activity() {
         lastRectKey = key.toString()
 
         try {
-            for (i in 0 until 4) {
+            for (i in 0 until 6) {
                 if (i < rects.size) {
                     val rc = rects[i]
                     setF(s, "r" + i + "x", rc[0])
@@ -304,13 +316,9 @@ class MainActivity : Activity() {
                     setF(s, "r" + i + "r", 0f)
                 }
             }
-            setF(s, "bevel", cfg.bevel * d)
-            setF(s, "refraction", cfg.refraction * d)
-            setF(s, "dispersion", cfg.dispersion * d)
-            setF(s, "blurR", cfg.blurR * d)
-            setF(s, "tintA", cfg.tintA)
-            setF(s, "rimA", cfg.rimA)
-            setF(s, "falloff", cfg.falloff * d)
+            // 参数按同名 uniform 写入（cfg 里有什么就写什么），dens 供 shader 把 dp 换算成设备像素
+            setF(s, "dens", d)
+            for ((k, v) in cfg) setF(s, k, v)
             // 关键：uniform 必须在创建 RenderEffect 之前写好，否则 effect 里拿到的是全 0。
             // 所以每次改参数都重建一次 effect（开销很小，只在参数变化时发生）。
             web.setRenderEffect(RenderEffect.createRuntimeShaderEffect(s, "content"))
@@ -352,41 +360,48 @@ class MainActivity : Activity() {
             null)
     }
 
-    /** 三块独立玻璃，中间留缝 */
+    /** 四块独立玻璃：☰ / 标题胶囊 / ＋ / ⋯，中间留缝（对齐 iOS 导航栏的玻璃按钮） */
     private fun buildTopBar(): View {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
         row.setPadding(0, dp(4), 0, dp(4))
 
-        val left = FrameLayout(this)
-        val ic = icon("\u2630", 44) { clickWeb("burger") }
-        left.addView(ic, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
-        row.addView(left, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(8) })
-        glassTargets.add(Pair(left, dp(22).toFloat()))
+        fun box(w: Int, weight: Float, gap: Boolean, build: (FrameLayout) -> Unit) {
+            val b = FrameLayout(this)
+            build(b)
+            val lp = if (weight > 0f) LinearLayout.LayoutParams(0, dp(44), weight)
+            else LinearLayout.LayoutParams(dp(w), dp(44))
+            if (gap) lp.marginEnd = dp(8)
+            row.addView(b, lp)
+            glassTargets.add(Pair(b, dp(22).toFloat()))
+        }
 
-        val mid = FrameLayout(this)
-        mid.addView(TextView(this).apply {
-            text = "Orion"
-            textSize = 16f
-            gravity = Gravity.CENTER
-            setTextColor(0xFF1A1A1C.toInt())
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        })
-        row.addView(mid, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(8) })
-        glassTargets.add(Pair(mid, dp(22).toFloat()))
+        box(44, 0f, true) { b ->
+            b.addView(icon("\u2630", 44) { clickWeb("burger") },
+                FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
+        }
 
-        val right = FrameLayout(this)
-        val rr = LinearLayout(this)
-        rr.orientation = LinearLayout.HORIZONTAL
-        rr.gravity = Gravity.CENTER
-        rr.addView(icon("\uFF0B", 44) { clickWeb("mnew") })
-        rr.addView(icon("\u22EF", 44) { clickWeb("dots") })
-        right.addView(rr, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER))
-        row.addView(right, LinearLayout.LayoutParams(dp(92), dp(44)))
-        glassTargets.add(Pair(right, dp(22).toFloat()))
+        box(0, 1f, true) { b ->
+            b.addView(TextView(this).apply {
+                text = "Orion"
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setTextColor(0xFF1A1A1C.toInt())
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            })
+        }
+
+        box(44, 0f, true) { b ->
+            b.addView(icon("\uFF0B", 44) { clickWeb("mnew") },
+                FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
+        }
+
+        box(44, 0f, false) { b ->
+            b.addView(icon("\u22EF", 44) { clickWeb("dots") },
+                FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
+        }
 
         return row
     }

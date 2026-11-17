@@ -579,7 +579,8 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
                 0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
         stripeView.visibility = View.GONE
-        root.addView(stripeView, FrameLayout.LayoutParams(
+        // 关键：插在 index=1（web 之上、玻璃之下），否则条纹会盖住玻璃，测不出东西
+        root.addView(stripeView, 1, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
             gravity = Gravity.TOP
         })

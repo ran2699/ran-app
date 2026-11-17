@@ -132,7 +132,7 @@ class MainActivity : Activity() {
         root.requestFocus()
 
         root.postDelayed({ applyConfig("init") }, 300)
-        root.viewTreeObserver.addOnGlobalLayoutListener { applyRects() }
+        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applyRects() }
     }
 
     private var topBar: View? = null
@@ -228,6 +228,7 @@ class MainActivity : Activity() {
         }
         try {
             shaderSrc = readShaderSrc()
+            lastRectKey = ""
             val s = RuntimeShader(shaderSrc)
             shader = s
             val eff = RenderEffect.createRuntimeShaderEffect(s, "content")
@@ -249,6 +250,8 @@ class MainActivity : Activity() {
         if (shaderSrc.contains("uniform float " + name)) s.setFloatUniform(name, v)
     }
 
+    private var lastRectKey = ""
+
     /** 把玻璃控件的位置换算成 WebView 本地坐标，逐个写入 shader 标量 uniform */
     private fun applyRects() {
         val s = shader ?: return
@@ -265,6 +268,14 @@ class MainActivity : Activity() {
             val t = (loc[1] - wloc[1]).toFloat()
             rects.add(floatArrayOf(l, t, l + v.width, t + v.height, r))
         }
+        // 位置没变就什么都不做：否则 setRenderEffect 会触发重绘，重绘又触发布局监听 → ANR
+        val key = StringBuilder()
+        for (rc in rects) {
+            for (f in rc) key.append(f.toInt()).append(',')
+        }
+        if (key.toString() == lastRectKey) return
+        lastRectKey = key.toString()
+
         try {
             for (i in 0 until 4) {
                 if (i < rects.size) {
@@ -487,6 +498,7 @@ class MainActivity : Activity() {
             input.maxLines = 1
             input.isFocusableInTouchMode = false
         }
+        lastRectKey = ""
         root.postDelayed({ applyRects() }, 260)
     }
 

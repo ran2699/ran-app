@@ -166,7 +166,7 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, 0, Gravity.BOTTOM))
 
         // ② 四块玻璃直接挂在 root（与 WebView 同父），必须写在 WebView 之后
-        gBurger = glassBox(dp(22f)) { icon("\u2630") { clickWeb("burger") } }
+        gBurger = glassBox(dp(22f)) { icon("\u2630") { openSidebar() } }
         gPill = glassBox(dp(22f)) {
             TextView(this).apply {
                 text = "Orion"
@@ -777,6 +777,347 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         }
     }
 
+    /* ================= 原生侧栏（P1） ================= */
+
+    class SessItem(val sid: String, val title: String, val pin: Boolean, val dot: Boolean, val cur: Boolean)
+
+    private var sideLayer: FrameLayout? = null
+    private var sideListBox: LinearLayout? = null
+    private var sideSearch: EditText? = null
+    private var sideUserLabel: TextView? = null
+    private var sideSess: List<SessItem> = emptyList()
+
+    private fun closeSidebar() {
+        sideLayer?.let { root.removeView(it) }
+        sideLayer = null
+        sideListBox = null
+        sideSearch = null
+        sideUserLabel = null
+    }
+
+    private fun pill(bg: Int, radius: Int): GradientDrawable =
+        GradientDrawable().apply {
+            cornerRadius = dp(radius.toFloat())
+            setColor(bg)
+        }
+
+    private fun roundBtn(txt: String): TextView {
+        val tv = TextView(this)
+        tv.text = txt
+        tv.textSize = 15f
+        tv.setTextColor(0xFF3C3C42.toInt())
+        tv.gravity = Gravity.CENTER
+        tv.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(0x14000000)
+        }
+        tv.isClickable = true
+        return tv
+    }
+
+    /** 原生侧栏：外观全原生玻璃，点击一律转调网页原函数 */
+    private fun openSidebar() {
+        closeSidebar()
+        val layer = FrameLayout(this)
+
+        val scrim = View(this)
+        scrim.setBackgroundColor(0x1F000000)
+        scrim.isClickable = true
+        scrim.setOnClickListener { closeSidebar() }
+        layer.addView(scrim, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        val glass = LiquidGlassView(this)
+        glass.cornerRadius = dp(28f)
+        glass.useShaderPipeline = true
+        glass.material = GlassMaterial.REGULAR
+        glass.enableDynamicBackground = true
+        glass.enableEdgeHighlight = true
+        glass.enableShadow = false
+        glass.clipChildren = false
+
+        val milkA = ((cfg["milk"] ?: 0.84f).coerceIn(0f, 1f) * 255).toInt()
+        val mv = View(this)
+        mv.background = GradientDrawable().apply {
+            cornerRadius = dp(28f)
+            setColor((milkA shl 24) or 0xFFFFFF)
+        }
+        glass.addView(mv, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        val col = LinearLayout(this)
+        col.orientation = LinearLayout.VERTICAL
+        col.setPadding(dp(14), dp(12), dp(14), dp(12))
+
+        // 标题行
+        val head = LinearLayout(this)
+        head.orientation = LinearLayout.HORIZONTAL
+        head.gravity = Gravity.CENTER_VERTICAL
+        val title = TextView(this)
+        title.text = "RAN Agent"
+        title.textSize = 17f
+        title.setTextColor(0xFF1A1A1C.toInt())
+        title.typeface = android.graphics.Typeface.DEFAULT_BOLD
+        head.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val dotsB = roundBtn("\u22EF")
+        dotsB.setOnClickListener { closeSidebar(); openDotsPanel() }
+        head.addView(dotsB, LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginEnd = dp(6) })
+        val closeB = roundBtn("\u00D7")
+        closeB.setOnClickListener { closeSidebar() }
+        head.addView(closeB, LinearLayout.LayoutParams(dp(34), dp(34)))
+        col.addView(head)
+
+        // 用户行
+        val userRow = LinearLayout(this)
+        userRow.orientation = LinearLayout.HORIZONTAL
+        userRow.gravity = Gravity.CENTER_VERTICAL
+        userRow.setPadding(dp(4), dp(12), dp(4), dp(8))
+        userRow.isClickable = true
+        userRow.setOnClickListener { closeSidebar(); evalJs("profileClick()") }
+        val av = TextView(this)
+        av.text = "R"
+        av.textSize = 15f
+        av.gravity = Gravity.CENTER
+        av.setTextColor(0xFF77777D.toInt())
+        av.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(0xFFDCDCE0.toInt())
+        }
+        userRow.addView(av, LinearLayout.LayoutParams(dp(34), dp(34)))
+        val un = TextView(this)
+        un.text = "未登录"
+        un.textSize = 15f
+        un.setTextColor(0xFF1A1A1C.toInt())
+        un.setPadding(dp(10), 0, 0, 0)
+        userRow.addView(un, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        sideUserLabel = un
+        col.addView(userRow)
+
+        // 导航 chips
+        val nav = LinearLayout(this)
+        nav.orientation = LinearLayout.HORIZONTAL
+        for ((label, call) in listOf(
+            "记忆" to "profileClick('mem')", "知识库" to "profileClick('kb')",
+            "收藏" to "profileClick('fav')", "任务" to "openTasks()"
+        )) {
+            val c = TextView(this)
+            c.text = label
+            c.textSize = 12.5f
+            c.setTextColor(0xFF3C3C42.toInt())
+            c.gravity = Gravity.CENTER
+            c.setPadding(dp(11), dp(6), dp(11), dp(6))
+            c.background = pill(0x14000000, 10)
+            c.isClickable = true
+            c.setOnClickListener { closeSidebar(); evalJs(call) }
+            nav.addView(c, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(6) })
+        }
+        col.addView(nav)
+
+        // 新对话
+        val nb = TextView(this)
+        nb.text = "+  新对话"
+        nb.textSize = 14.5f
+        nb.setTextColor(0xFF1A1A1C.toInt())
+        nb.gravity = Gravity.CENTER
+        nb.setPadding(0, dp(10), 0, dp(10))
+        nb.background = pill(0x1F000000, 12)
+        nb.isClickable = true
+        nb.setOnClickListener { closeSidebar(); evalJs("newChat()") }
+        col.addView(nb, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(10) })
+
+        // 搜索框（原生，本地过滤，零网络延迟）
+        val se = EditText(this)
+        se.hint = "搜索对话"
+        se.textSize = 14f
+        se.setSingleLine(true)
+        se.setTextColor(0xFF1A1A1C.toInt())
+        se.setHintTextColor(0xFF9A9AA0.toInt())
+        se.setPadding(dp(12), dp(8), dp(12), dp(8))
+        se.background = pill(0x14000000, 12)
+        se.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(e: android.text.Editable?) { renderSideSess(e?.toString() ?: "") }
+            override fun beforeTextChanged(x: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(x: CharSequence?, a: Int, b: Int, c: Int) {}
+        })
+        sideSearch = se
+        col.addView(se, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(10) })
+
+        // 会话列表
+        val sv = android.widget.ScrollView(this)
+        sv.isVerticalScrollBarEnabled = false
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.VERTICAL
+        sv.addView(box)
+        sideListBox = box
+        col.addView(sv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            .apply { topMargin = dp(8) })
+
+        glass.addView(col, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        val lp = FrameLayout.LayoutParams(dp(316), ViewGroup.LayoutParams.MATCH_PARENT)
+        lp.gravity = Gravity.START
+        lp.leftMargin = dp(8)
+        lp.topMargin = insetTop + dp(6)
+        lp.bottomMargin = insetBottom + dp(6)
+        layer.addView(glass, lp)
+
+        root.addView(layer, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        sideLayer = layer
+        refreshSidebar()
+    }
+
+    /** 从网页读用户与会话列表 */
+    private fun refreshSidebar() {
+        evalJson("({user:(typeof ME!=='undefined'&&ME?ME:''),sid:(typeof sid!=='undefined'?sid:'')," +
+                "sess:(typeof sessCache!=='undefined'?sessCache:[]).map(function(s){" +
+                "return {sid:s.sid,title:s.title||'',pin:!!s.pin,dot:!!s.dot}})})") { raw ->
+            runOnUiThread {
+                if (sideLayer == null) return@runOnUiThread
+                try {
+                    val o = org.json.JSONObject(raw)
+                    val user = o.optString("user", "")
+                    sideUserLabel?.text = if (user.isBlank()) "未登录" else user
+                    val cur = o.optString("sid", "")
+                    val arr = o.optJSONArray("sess") ?: JSONArray()
+                    val list = ArrayList<SessItem>()
+                    for (i in 0 until arr.length()) {
+                        val e = arr.optJSONObject(i) ?: continue
+                        val id = e.optString("sid")
+                        if (id.isBlank()) continue
+                        list.add(SessItem(id, e.optString("title"), e.optBoolean("pin"),
+                            e.optBoolean("dot"), id == cur))
+                    }
+                    sideSess = list
+                    renderSideSess(sideSearch?.text?.toString() ?: "")
+                } catch (t: Throwable) {
+                    Log.w(TAG, "侧栏数据解析失败", t)
+                }
+            }
+        }
+    }
+
+    private fun sideRefreshLater() {
+        root.postDelayed({ if (sideLayer != null) refreshSidebar() }, 600)
+    }
+
+    private fun renderSideSess(kw: String) {
+        val box = sideListBox ?: return
+        box.removeAllViews()
+        val k = kw.trim().lowercase()
+        var n = 0
+        for (si in sideSess) {
+            if (k.isNotEmpty() && !si.title.lowercase().contains(k)) continue
+            n++
+            val row = LinearLayout(this)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.gravity = Gravity.CENTER_VERTICAL
+            row.setPadding(dp(11), dp(10), dp(11), dp(10))
+            row.background = pill(if (si.cur) 0x1F000000 else 0x00000000, 11)
+            val t = TextView(this)
+            t.text = if (si.title.isBlank()) "新对话" else si.title
+            t.textSize = 13.5f
+            t.setTextColor(if (si.cur) 0xFF1A1A1C.toInt() else 0xFF4A4A50.toInt())
+            t.maxLines = 1
+            t.ellipsize = android.text.TextUtils.TruncateAt.END
+            if (si.cur) t.typeface = android.graphics.Typeface.DEFAULT_BOLD
+            row.addView(t, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            if (si.pin) {
+                val p = TextView(this)
+                p.text = "\u2605"
+                p.textSize = 11f
+                p.setTextColor(0xFFB0B0B6.toInt())
+                p.setPadding(dp(6), 0, 0, 0)
+                row.addView(p)
+            }
+            if (si.dot) {
+                val d = View(this)
+                d.background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(0xFF5B8DEF.toInt())
+                }
+                row.addView(d, LinearLayout.LayoutParams(dp(7), dp(7)).apply { marginStart = dp(6) })
+            }
+            row.isClickable = true
+            row.setOnClickListener { pickSession(si.sid) }
+            row.setOnLongClickListener { showSessMenu(row, si); true }
+            box.addView(row, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(2) })
+        }
+        if (n == 0) {
+            val e = TextView(this)
+            e.text = if (k.isEmpty()) "暂无对话" else "无匹配"
+            e.textSize = 13f
+            e.setTextColor(0xFF9A9AA0.toInt())
+            e.gravity = Gravity.CENTER
+            e.setPadding(0, dp(18), 0, dp(18))
+            box.addView(e, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+    }
+
+    private fun pickSession(sidv: String) {
+        closeSidebar()
+        evalJs("(function(){try{localStorage.setItem('orion_sid'," + jsStr(sidv) + ");" +
+                "sid=" + jsStr(sidv) + ";closeMenu();markRead(" + jsStr(sidv) + ");" +
+                "loadChat();refreshList();}catch(e){}})()")
+    }
+
+    private fun showSessMenu(anchor: View, s: SessItem) {
+        showGlassMenu(anchor, listOf(
+            MenuItem(if (s.pin) "取消置顶" else "置顶") {
+                evalJs("fetch('/session/pin',{method:'POST',headers:{'Content-Type':'application/json'}," +
+                        "body:JSON.stringify({sid:" + jsStr(s.sid) + ",pin:" + (!s.pin) + "})})" +
+                        ".then(function(){refreshList()})")
+                sideRefreshLater()
+            },
+            MenuItem("重命名") { renameSession(s) },
+            MenuItem("删除") { confirmDeleteSession(s) }
+        ), false)
+    }
+
+    private fun renameSession(s: SessItem) {
+        val ed = EditText(this)
+        ed.setText(s.title)
+        ed.setSelection(ed.text.length)
+        android.app.AlertDialog.Builder(this)
+            .setTitle("重命名")
+            .setView(ed)
+            .setPositiveButton("确定") { _, _ ->
+                val nt = ed.text.toString().trim()
+                if (nt.isNotEmpty()) {
+                    evalJs("fetch('/session/rename',{method:'POST',headers:{'Content-Type':'application/json'}," +
+                            "body:JSON.stringify({sid:" + jsStr(s.sid) + ",title:" + jsStr(nt) + "})})" +
+                            ".then(function(){refreshList()})")
+                    sideRefreshLater()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun confirmDeleteSession(s: SessItem) {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("删除对话")
+            .setMessage("删除「" + s.title + "」？")
+            .setPositiveButton("删除") { _, _ ->
+                evalJs("fetch('/session/delete',{method:'POST',headers:{'Content-Type':'application/json'}," +
+                        "body:JSON.stringify({sid:" + jsStr(s.sid) + "})})" +
+                        ".then(function(){refreshList()})")
+                sideRefreshLater()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     /** 附件菜单：对应网页 #pluspanel（拍照 / 相册 / 文件），点击转调网页 pickFile */
     private fun openPlusPanel() {
         evalJs("closeFloatPanels('')")
@@ -835,6 +1176,7 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        if (sideLayer != null) { closeSidebar(); return }
         if (menuLayer != null) { dismissMenu(); return }
         super.onBackPressed()
     }
@@ -1191,6 +1533,7 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         // 改为只隐藏输入框本体，其余状态条保留并上移到原生输入岛之上。
         val islandH = ((insetBottom + dp(56) + dp(14)) / d).toInt()
         val css = "#mhead{display:none!important}" +
+                "#side{display:none!important}" +
                 "#inwrap{display:none!important}" +
                 "#sendbtn{display:none!important}" +
                 "#pluspanel,#dotspanel,#agentpanel,#permpanel{display:none!important}" +

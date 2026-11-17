@@ -23,7 +23,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
+import android.app.Activity
 import java.io.File
 
 /**
@@ -38,7 +38,7 @@ import java.io.File
  *   adb push glass.cfg   /sdcard/Android/data/com.ran.agent/files/glass.cfg
  *   adb shell am broadcast -a com.ran.agent.RELOAD
  */
-class MainActivity : AppCompatActivity() {
+class MainActivity : Activity() {
 
     private lateinit var root: FrameLayout
     private lateinit var web: WebView

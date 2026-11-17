@@ -403,22 +403,21 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         val agsl = try {
             Class.forName("android.graphics.RuntimeShader"); "yes"
         } catch (t: Throwable) { "no" }
-        val text = "API " + android.os.Build.VERSION.SDK_INT + " · AGSL:" + agsl +
+        val probeText = "API " + android.os.Build.VERSION.SDK_INT + " · AGSL:" + agsl +
                 " · " + glassInfo.toString()
 
-        val tv = probeView
-        if (tv != null && tv.parent != null) {
-            tv.text = text
-            tv.animate().cancel()
-            tv.alpha = 1f
+        val existing = probeView
+        if (existing != null && existing.parent != null) {
+            existing.text = probeText
+            existing.animate().cancel()
+            existing.alpha = 1f
         } else {
-            val nv = TextView(this).apply {
-                textSize = 10f
-                setTextColor(0xFF3A3A40.toInt())
-                setBackgroundColor(0x55FFFFFF)
-                setPadding(dp(10), dp(6), dp(10), dp(6))
-                text = text
-            }
+            val nv = TextView(this)
+            nv.textSize = 10f
+            nv.setTextColor(0xFF3A3A40.toInt())
+            nv.setBackgroundColor(0x55FFFFFF)
+            nv.setPadding(dp(10), dp(6), dp(10), dp(6))
+            nv.text = probeText
             root.addView(nv, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
@@ -427,12 +426,15 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             })
             probeView = nv
         }
-        probeView?.animate()?.cancel()
-        probeView?.alpha = 1f
-        probeHideRun?.let { probeView?.removeCallbacks(it) }
-        val hide = Runnable { probeView?.animate()?.alpha(0f)?.setDuration(450)?.start() }
+        val shown = probeView ?: return
+        shown.animate().cancel()
+        shown.alpha = 1f
+        probeHideRun?.let { shown.removeCallbacks(it) }
+        val hide = Runnable {
+            probeView?.animate()?.alpha(0f)?.setDuration(450)?.start()
+        }
         probeHideRun = hide
-        probeView?.postDelayed(hide, 9000)
+        shown.postDelayed(hide, 9000)
     }
 
     /* ---------------- 生命周期 ---------------- */

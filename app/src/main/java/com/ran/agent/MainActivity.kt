@@ -102,8 +102,12 @@ class MainActivity : Activity() {
 
         web.loadUrl("https://ran.ran-ai.pro")
 
+        // 启动不弹键盘：把焦点交给根容器
+        root.isFocusableInTouchMode = true
+        root.requestFocus()
         input.clearFocus()
-        web.requestFocus()
+        window.setSoftInputMode(
+            android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         root.postDelayed({ applyConfig("init") }, 320)
         root.viewTreeObserver.addOnGlobalLayoutListener { applyRects() }
@@ -340,7 +344,15 @@ class MainActivity : Activity() {
         input.maxLines = 1
         input.layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        input.setOnFocusChangeListener { _, has -> expandIsland(has) }
+        input.setSelectAllOnFocus(false)
+        input.setOnFocusChangeListener { _, has ->
+            expandIsland(has)
+            if (!has) {
+                val imm = getSystemService(INPUT_METHOD_SERVICE)
+                        as android.view.inputmethod.InputMethodManager
+                imm.hideSoftInputFromWindow(input.windowToken, 0)
+            }
+        }
         input.setOnEditorActionListener { _, action, _ ->
             if (action == EditorInfo.IME_ACTION_SEND) {
                 doSend(); expandIsland(false); true

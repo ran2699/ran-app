@@ -107,14 +107,36 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         return null
     }
 
-    private fun makeGlass(): LiquidGlassView {
+    /**
+     * 按库的真实 API 配置一块玻璃（v2.0.11 已反编译核实）：
+     *   setBackdropSource(View)   显式指定采样对象 —— 不指定就只能取到窗口层，会渲染成黑块
+     *   setOverLight(true)        声明玻璃压在浅色内容上（苹果的 regular material 语义）
+     *   setBlurAmount / setCornerRadius / setGlassTint / setMaterial(REGULAR)
+     */
+    private fun makeGlass(radiusDp: Int = 26): LiquidGlassView {
         val g = LiquidGlassView(this)
-        // 关键：不开这个开关，玻璃不会去采样身后的内容，就只剩一层素色
-        val b = tryBool(g, "setEnableDynamicBackground", "setDynamicBackgroundEnabled", "setBackdropEnabled")
-        // 圆角/模糊：各版本命名不一，挨个试，成功就记下来
-        val r = tryFloat(g, "setCornerRadius", "setGlassCornerRadius", "setRadius", value = dp(22).toFloat())
-        val bl = tryFloat(g, "setBlurRadius", "setGlassBlurRadius", "setBlur", value = dp(18).toFloat())
-        glassInfo.append("dyn=").append(b ?: "?").append(" r=").append(r ?: "?").append(" blur=").append(bl ?: "?")
+        try {
+            if (this::web.isInitialized) g.setBackdropSource(web)
+            g.setEnableDynamicBackground(true)
+            g.setEnableBackdropBlur(true)
+            g.setMaterial(com.example.liquidglass.GlassMaterial.REGULAR)
+            g.setOverLight(true)
+            g.setBlurAmount(dp(16).toFloat())
+            g.setCornerRadius(dp(radiusDp).toFloat())
+            g.setGlassTint(0x2EFFFFFF, 0.9f)
+            g.setEnableEdgeHighlight(true)
+            g.setEnablePressEffect(true)
+            g.setEnableSensorHighlight(true)
+            g.setDispersionStrength(0.10f)
+            g.setBevelWidth(dp(radiusDp).toFloat() * 0.5f)
+            g.setRefractionHeight(dp(6).toFloat())
+            glassInfo.setLength(0)
+            glassInfo.append("backdrop=").append(g.backdropSource != null)
+                .append(" r=").append(g.cornerRadius.toInt())
+                .append(" blur=").append(g.blurAmount.toInt())
+        } catch (t: Throwable) {
+            glassInfo.append("cfg-err:").append(t.javaClass.simpleName)
+        }
         return g
     }
 
@@ -147,12 +169,12 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         }
 
         // ① 左侧：菜单，独立小玻璃
-        val gMenu = makeGlass()
+        val gMenu = makeGlass(24)
         gMenu.addView(iconBtn("\u2630", "菜单", 48) { clickWeb("burger") })
         wrap.addView(gMenu, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
 
         // ② 中间：标题玻璃，占满剩余宽度，但不贴边
-        val gTitle = makeGlass()
+        val gTitle = makeGlass(24)
         val title = TextView(this).apply {
             text = "Orion"
             textSize = 16f
@@ -165,7 +187,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         wrap.addView(gTitle, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(8) })
 
         // ③ 右侧：新建 + 更多，两块图标共用一块玻璃（与参考图一致）
-        val gRight = makeGlass()
+        val gRight = makeGlass(24)
         val rightRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -203,7 +225,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
     }
 
     private fun buildIsland(): LiquidGlassView {
-        val g = makeGlass()
+        val g = makeGlass(28)
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(2), dp(14), dp(2))
@@ -272,6 +294,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             }.start()
         }
         input.maxLines = if (on) 4 else 1
+        try { island.setCornerRadius(dp(if (on) 26 else 28).toFloat()) } catch (_: Throwable) {}
         syncShellCss()
     }
 

@@ -149,6 +149,7 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, dp(H_COLLAPSE), Gravity.BOTTOM))
 
         applyGlassParams()
+        buildTuner()
 
         root.setOnApplyWindowInsetsListener { _, ins ->
             if (Build.VERSION.SDK_INT >= 30) {
@@ -212,19 +213,17 @@ class MainActivity : Activity() {
         val top = listOf<Any>(gBurger, gPill, gPlus, gDots)
         val all = listOf<Any>(gBurger, gPill, gPlus, gDots, island)
         for ((k, v) in cfg) {
-            if (k == "probe") continue
-            val raw = if (k in DP_KEYS) v * d else v
-            val targets = when (k) {
-                "corner" -> top
-                "islandCorner" -> listOf<Any>(island)
-                "material" -> {                 // 0=CLEAR 1=REGULAR，枚举没法用数值反射
-                    for (t in all) (t as LiquidGlassView).material =
-                        if (v > 0.5f) GlassMaterial.REGULAR else GlassMaterial.CLEAR
-                    continue
+            if (k == "probe" || k == "milk") continue
+            when (k) {
+                "corner" -> for (t in top) setProp(t, "cornerRadius", v * d)
+                "islandCorner" -> setProp(island, "cornerRadius", v * d)
+                "material" -> for (t in all) (t as LiquidGlassView).material =
+                    if (v > 0.5f) GlassMaterial.REGULAR else GlassMaterial.CLEAR
+                else -> {
+                    val raw = if (k in DP_KEYS) v * d else v
+                    for (t in all) setProp(t, k, raw)
                 }
-                else -> all
             }
-            for (t in targets) setProp(t, k, raw)
         }
         for ((k, v) in cfgInt) {
             if (k == "glassTint") for (t in all) setIntProp(t, "glassTint", v)
@@ -249,6 +248,225 @@ class MainActivity : Activity() {
             gd.cornerRadius = g.cornerRadius
             gd.setColor((a shl 24) or 0xFFFFFF)
             v.background = gd
+        }
+    }
+
+    /* ================= 调参面板 ================= */
+
+    private lateinit var tunerHandle: TextView
+    private lateinit var tunerPanel: android.widget.ScrollView
+    private var tunerOpen = false
+
+    private fun buildTuner() {
+        val h = TextView(this)
+        h.text = "\u2699"
+        h.textSize = 20f
+        h.gravity = Gravity.CENTER
+        h.setTextColor(Color.WHITE)
+        h.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(0xE61A1A1C.toInt())
+        }
+        h.elevation = dp(8f)
+        val lp = FrameLayout.LayoutParams(dp(48), dp(48), Gravity.END or Gravity.CENTER_VERTICAL)
+        lp.rightMargin = dp(6f)
+        root.addView(h, lp)
+        tunerHandle = h
+
+        // 拖动 + 点击（移动超过阈值算拖拽，否则算点击开关面板）
+        var dx = 0f; var dy = 0f; var moved = false
+        h.setOnTouchListener { v, e ->
+            when (e.action) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    dx = e.rawX - v.x; dy = e.rawY - v.y; moved = false; true
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    if (Math.abs(e.rawX - v.x - dx) > 12 || Math.abs(e.rawY - v.y - dy) > 12) moved = true
+                    if (moved) {
+                        v.x = (e.rawX - dx).coerceIn(0f, (root.width - v.width).toFloat())
+                        v.y = (e.rawY - dy).coerceIn(0f, (root.height - v.height).toFloat())
+                    }
+                    true
+                }
+                android.view.MotionEvent.ACTION_UP -> {
+                    if (!moved) toggleTuner()
+                    true
+                }
+                else -> false
+            }
+        }
+
+        val sv = android.widget.ScrollView(this)
+        sv.background = GradientDrawable().apply {
+            cornerRadius = dp(18f)
+            setColor(0xF7FFFFFF.toInt())
+        }
+        sv.elevation = dp(16f)
+        sv.visibility = View.GONE
+        val col = LinearLayout(this)
+        col.orientation = LinearLayout.VERTICAL
+        col.setPadding(dp(14), dp(10), dp(14), dp(12))
+        sv.addView(col)
+
+        val title = TextView(this)
+        title.text = "\u73bb\u7483\u53c2\u6570"
+        title.textSize = 15f
+        title.setTextColor(0xFF1A1A1C.toInt())
+        col.addView(title)
+
+        addSlider(col, "\u767d\u5ea6 milk", "milk", 0f, 1f)
+        addSlider(col, "\u6a21\u7cca blur", "blurAmount", 0f, 2.5f)
+        addSlider(col, "\u6298\u5c04 depth", "refractionHeight", 0f, 60f)
+        addSlider(col, "\u8fb9\u7f18\u5e26 bevel", "bevelWidth", 0f, 40f)
+        addSlider(col, "\u8272\u6563 disp", "dispersionStrength", 0f, 0.4f)
+        addSlider(col, "\u5706\u89d2 corner", "corner", 0f, 34f)
+        addSlider(col, "\u9971\u548c sat", "saturation", 60f, 200f)
+
+        col.addView(sectionLabel("\u5e95\u666f"))
+        val brow = LinearLayout(this)
+        brow.orientation = LinearLayout.HORIZONTAL
+        brow.addView(chip("\u767d\u5e95\u6587\u5b57") { applyBackdrop(1) })
+        brow.addView(chip("\u5f69\u8272") { applyBackdrop(2) })
+        brow.addView(chip("\u771f\u5b9e\u9875") { applyBackdrop(0) })
+        col.addView(brow)
+
+        col.addView(sectionLabel("\u7ba1\u7ebf / \u5c42"))
+        val row2 = LinearLayout(this)
+        row2.orientation = LinearLayout.HORIZONTAL
+        row2.addView(chip("\u900f\u955c") {
+            cfg["useShaderPipeline"] = 1f
+            applyGlassParams(); saveCfg()
+        })
+        row2.addView(chip("\u7ecf\u5178") {
+            cfg["useShaderPipeline"] = 0f
+            applyGlassParams(); saveCfg()
+        })
+        row2.addView(chip("\u6295\u5f71") {
+            cfg["enableShadow"] = if ((cfg["enableShadow"] ?: 0f) > 0.5f) 0f else 1f
+            applyGlassParams(); saveCfg()
+        })
+        col.addView(row2)
+
+        val foot = LinearLayout(this)
+        foot.orientation = LinearLayout.HORIZONTAL
+        foot.addView(chip("\u4fdd\u5b58") { saveCfg(); toast("\u5df2\u4fdd\u5b58") })
+        foot.addView(chip("\u590d\u4f4d") { loadCfg(); applyGlassParams(); saveCfg() })
+        foot.addView(chip("\u6536\u8d77") { toggleTuner() })
+        col.addView(foot)
+
+        val plp = FrameLayout.LayoutParams(dp(320), dp(470), Gravity.END or Gravity.TOP)
+        plp.rightMargin = dp(8f)
+        plp.topMargin = dp(70f)
+        root.addView(sv, plp)
+        tunerPanel = sv
+    }
+
+    private fun toggleTuner() {
+        tunerOpen = !tunerOpen
+        tunerPanel.visibility = if (tunerOpen) View.VISIBLE else View.GONE
+        tunerHandle.text = if (tunerOpen) "\u00d7" else "\u2699"
+    }
+
+    private fun sectionLabel(t: String) = TextView(this).apply {
+        text = t
+        textSize = 11f
+        setTextColor(0xFF8A8A90.toInt())
+        setPadding(0, dp(8), 0, dp(2))
+    }
+
+    private fun fmt(v: Float) = String.format("%.2f", v)
+
+    private fun addSlider(col: LinearLayout, label: String, key: String, min: Float, max: Float) {
+        val def = CFG_DEFAULTS[key] ?: min
+        val cur = cfg[key] ?: def
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.VERTICAL
+        val tv = TextView(this)
+        tv.textSize = 12f
+        tv.setTextColor(0xFF1A1A1C.toInt())
+        tv.text = label + "  " + fmt(cur)
+        row.addView(tv)
+        val sb = android.widget.SeekBar(this)
+        sb.max = 1000
+        sb.progress = (((cur - min) / (max - min)) * 1000f).toInt().coerceIn(0, 1000)
+        sb.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(b: android.widget.SeekBar?, pr: Int, user: Boolean) {
+                val v = min + (max - min) * pr / 1000f
+                cfg[key] = v
+                tv.text = label + "  " + fmt(v)
+                if (user) applyGlassParams()
+            }
+            override fun onStartTrackingTouch(b: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(b: android.widget.SeekBar?) { saveCfg() }
+        })
+        row.addView(sb, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(34)))
+        col.addView(row)
+    }
+
+    private fun chip(t: String, onclick: () -> Unit): TextView {
+        return TextView(this).apply {
+            text = t
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(0xFF1A1A1C.toInt())
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10f)
+                setColor(0xFFEDEDF0.toInt())
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                rightMargin = dp(6)
+                topMargin = dp(4)
+            }
+            setOnClickListener { onclick() }
+        }
+    }
+
+    private fun toast(t: String) {
+        android.widget.Toast.makeText(this, t, android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    /** 底景：0=真实页面 1=白底密集文字 2=彩色渐变条纹 */
+    private fun applyBackdrop(kind: Int) {
+        val js = when (kind) {
+            0 -> "(function(){var o=document.getElementById('ran-demo');if(o)o.remove();" +
+                 "var s=document.getElementById('ran-demo-style');if(s)s.remove();return 'real'})()"
+            1 -> """(function(){var o=document.getElementById('ran-demo');if(o)o.remove();
+var S=document.getElementById('ran-demo-style');if(!S){S=document.createElement('style');S.id='ran-demo-style';document.head.appendChild(S);}
+S.textContent='html,body{background:#F2F2F4!important}';
+var b=document.createElement('div');b.id='ran-demo';
+b.style.cssText='position:fixed;left:0;right:0;top:0;bottom:0;z-index:9999;pointer-events:none;overflow:hidden;background:#F2F2F4;font:400 15px/1.55 -apple-system,sans-serif;color:#15171b;';
+var L=['这是一条消息用来检验玻璃下的文字是否被正确处理','The quick brown fox jumps 0123','液态玻璃在白底上要靠描边与投影立住','边缘折射带要窄内部要雾化'];
+var h='';for(var i=0;i<34;i++){h+='<div style="position:absolute;left:16px;right:16px;top:'+(6+i*44)+'px;white-space:nowrap;overflow:hidden;">'+L[i%4]+'</div>';}
+b.innerHTML=h;document.body.appendChild(b);return 'text'})()"""
+            else -> """(function(){var o=document.getElementById('ran-demo');if(o)o.remove();
+var S=document.getElementById('ran-demo-style');if(!S){S=document.createElement('style');S.id='ran-demo-style';document.head.appendChild(S);}
+S.textContent='html,body{background:#F2F2F4!important}';
+var b=document.createElement('div');b.id='ran-demo';
+b.style.cssText='position:fixed;left:0;right:0;top:0;bottom:0;z-index:9999;pointer-events:none;overflow:hidden;';
+var h='';
+h+='<div style="position:absolute;left:0;right:0;top:0;height:620px;background:linear-gradient(100deg,#ff2d55,#ff9500,#ffe600,#34c759,#00c7be,#0a84ff,#5e5ce6);"></div>';
+for(var i=0;i<18;i++){h+='<div style="position:absolute;left:'+(i*80)+'px;top:300px;width:40px;height:320px;background:#111;"></div>';}
+h+='<div style="position:absolute;left:0;right:0;top:700px;height:800px;background:#F2F2F4;"></div>';
+h+='<div style="position:absolute;left:0;right:0;top:1500px;height:1700px;background:linear-gradient(60deg,#5e5ce6,#0a84ff,#00c7be,#34c759,#ffcc00,#ff3b30,#ff2d55);"></div>';
+b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
+        }
+        web.evaluateJavascript(js, null)
+    }
+
+    /** 把所有参数写回设备上的 glass.cfg，重启后仍生效，也便于我读取你的最终值 */
+    private fun saveCfg() {
+        try {
+            val sb = StringBuilder()
+            sb.append("# saved by tuner ").append(System.currentTimeMillis()).append("\n")
+            for ((k, v) in cfg) sb.append(k).append('=').append(v).append('\n')
+            for ((k, v) in cfgInt) sb.append(k).append("=0x")
+                .append(Integer.toHexString(v).uppercase()).append('\n')
+            File(cfgDir(), "glass.cfg").writeText(sb.toString())
+        } catch (t: Throwable) {
+            Log.e(TAG, "saveCfg 失败", t)
         }
     }
 

@@ -63,6 +63,7 @@ class MainActivity : Activity() {
     private val reloader = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
             applyConfig("reload")
+            runDemoJs()
         }
     }
 
@@ -576,6 +577,7 @@ class MainActivity : Activity() {
                 root.postDelayed({ applyRects() }, 400)
                 root.postDelayed({ injectShellCss() }, 1200)
                 root.postDelayed({ logWebViewport() }, 1500)
+                root.postDelayed({ runDemoJs() }, 1800)
             }
         }
     }
@@ -585,6 +587,21 @@ class MainActivity : Activity() {
      * 全程运行时注入，网页源码零改动 —— 鸿蒙 / 桌面端不受影响。
      */
     private var lastPad = -1
+
+    /** 调试通道：执行设备目录里的 demo.js，用于造测试内容验证折射，零构建迭代 */
+    private fun runDemoJs() {
+        val f = File(cfgDir(), "demo.js")
+        if (!f.exists() || f.length() < 8) return
+        try {
+            val js = f.readText()
+            web.evaluateJavascript(js, android.webkit.ValueCallback<String> { v ->
+                Log.i(TAG, "demo.js -> " + v)
+            })
+            Log.i(TAG, "demo.js 已执行，长度=" + js.length)
+        } catch (t: Throwable) {
+            Log.e(TAG, "demo.js 失败", t)
+        }
+    }
 
     private fun logWebViewport() {
         web.evaluateJavascript(

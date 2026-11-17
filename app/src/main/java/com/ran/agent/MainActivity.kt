@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -569,7 +570,8 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         shadowRing.alphaPx = (cfg["shadowAlpha"] ?: 34f).toInt()
         shadowRing.blurPx = (cfg["shadowBlur"] ?: 14f) * d
         shadowRing.dyPx = (cfg["shadowDy"] ?: 5f) * d
-        shadowRing.invalidate()
+        shadowRing.invalidateShadow()
+        Log.i(TAG, "shadow a=${shadowRing.alphaPx} blur=${shadowRing.blurPx} dy=${shadowRing.dyPx}")
     }
 
     private fun invalidateEdges() {
@@ -586,42 +588,64 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         var alphaPx = 34
         var blurPx = 40f
         var dyPx = 14f
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-        }
+
+        private val cache = HashMap<Int, Bitmap>()
+        private val pad: Int get() = (blurPx * 2f).toInt() + dp(10)
 
         init {
-            setLayerType(View.LAYER_TYPE_SOFTWARE, null)   // setShadowLayer 需要软件层
-            isClickable = false                            // 不吃触摸，事件穿透给下面的玻璃/网页
+            // 只在独立位图上做阴影 + 遮罩，不依赖 View 画布的 saveLayer/CLEAR
+            isClickable = false
             isFocusable = false
         }
 
         override fun onDraw(canvas: Canvas) {
-            if (alphaPx <= 0 || blurPx <= 0f) return
             val targets = ArrayList<View>()
             if (this@MainActivity::gBurger.isInitialized && this@MainActivity::island.isInitialized) {
                 targets.add(gBurger); targets.add(gPill); targets.add(gPlus)
                 targets.add(gDots); targets.add(island)
             }
-            for (v in targets) {
-                if (v.visibility != View.VISIBLE || v.width <= 0) continue
-                val r = RectF(v.left.toFloat(), v.top.toFloat(),
-                    v.right.toFloat(), v.bottom.toFloat())
-                if (r.isEmpty) continue
-                val corner = if (v is LiquidGlassView) v.cornerRadius else 0f
-                val pad = blurPx * 2f + dp(4)
-                val layer = RectF(r)
-                layer.inset(-pad, -pad)
-                val save = canvas.saveLayer(layer, null)
-                paint.reset()
-                paint.isAntiAlias = true
-                paint.color = Color.WHITE
-                paint.setShadowLayer(blurPx, 0f, dyPx, Color.argb(alphaPx, 0, 0, 0))
-                canvas.drawRoundRect(r, corner, corner, paint)
-                canvas.drawRoundRect(r, corner, corner, clearPaint)
-                canvas.restoreToCount(save)
+            if (alphaPx <= 0 || blurPx <= 0f) {
+                if (targets.isNotEmpty()) Log.d(TAG, "shadow off")
+                return
             }
+            for (v in targets) {
+                if (v.visibility != View.VISIBLE || v.width <= 0 || v.height <= 0) continue
+                val corner = if (v is LiquidGlassView) v.cornerRadius else 0f
+                val key = (v.width * 31 + v.height) * 31 + corner.toInt()
+                val bmp = cache[key] ?: render(v.width, v.height, corner)?.also { cache[key] = it }
+                if (bmp == null) continue
+                canvas.drawBitmap(bmp, (v.left - pad).toFloat(), (v.top - pad).toFloat(), null)
+            }
+        }
+
+        /** 在独立位图上：画带阴影的圆角矩形 → 把矩形内部挖空 → 只剩形状外的投影 */
+        private fun render(w: Int, h: Int, corner: Float): Bitmap? {
+            val pd = pad
+            val bw = w + pd * 2
+            val bh = h + pd * 2
+            if (bw <= 0 || bh <= 0 || bw > 4096 || bh > 4096) return null
+            return try {
+                val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+                val c = Canvas(bmp)
+                val r = RectF(pd.toFloat(), pd.toFloat(), (pd + w).toFloat(), (pd + h).toFloat())
+                val p = Paint(Paint.ANTI_ALIAS_FLAG)
+                p.color = Color.WHITE
+                p.setShadowLayer(blurPx, 0f, dyPx, Color.argb(alphaPx, 0, 0, 0))
+                c.drawRoundRect(r, corner, corner, p)
+                // 位图上的 CLEAR 是可靠的：整块 alpha 归零
+                val clr = Paint(Paint.ANTI_ALIAS_FLAG)
+                clr.xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+                c.drawRoundRect(r, corner, corner, clr)
+                bmp
+            } catch (t: Throwable) {
+                Log.e(TAG, "阴影位图生成失败", t)
+                null
+            }
+        }
+
+        fun invalidateShadow() {
+            cache.clear()
+            invalidate()
         }
     }
 

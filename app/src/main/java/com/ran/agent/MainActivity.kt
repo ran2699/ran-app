@@ -14,6 +14,9 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.view.WindowManager
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.PathInterpolator
@@ -65,7 +68,19 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+
+        // 沉浸式：玻璃延伸到状态栏/导航栏下面（苹果的做法）
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false)
+            window.insetsController?.setSystemBarsAppearance(
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                        WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                        WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
+        }
 
         root = FrameLayout(this)
         root.setBackgroundColor(0xFFF7F7F8.toInt())
@@ -76,41 +91,79 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setupWeb()
 
-        val layer = FrameLayout(this)
-        root.addView(layer, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
-        layer.addView(buildTopBar(), FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply {
-            gravity = Gravity.TOP
-            topMargin = dp(26)
-            leftMargin = dp(8)
-            rightMargin = dp(8)
-        })
+        val tb = buildTopBar()
+        topBar = tb
+        root.addView(tb, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
 
         island = buildIsland()
-        layer.addView(island, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(H_COLLAPSE)).apply {
-            gravity = Gravity.BOTTOM
-            leftMargin = dp(12)
-            rightMargin = dp(12)
-            bottomMargin = dp(18)
-        })
+        root.addView(island, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(H_COLLAPSE)))
 
-        registerReceiver(reloader, IntentFilter("com.ran.agent.RELOAD"),
-            if (Build.VERSION.SDK_INT >= 33) Context.RECEIVER_EXPORTED else 0)
+        root.setOnApplyWindowInsetsListener { _, ins ->
+            if (Build.VERSION.SDK_INT >= 30) {
+                val sb = ins.getInsets(WindowInsets.Type.statusBars())
+                val nb = ins.getInsets(WindowInsets.Type.navigationBars())
+                val im = ins.getInsets(WindowInsets.Type.ime())
+                insetTop = sb.top
+                insetBottom = nb.bottom
+                imeBottom = maxOf(0, im.bottom - nb.bottom)
+            } else {
+                insetTop = ins.systemWindowInsetTop
+                insetBottom = ins.systemWindowInsetBottom
+                imeBottom = 0
+            }
+            applyLayout()
+            ins
+        }
+
+        val filter = IntentFilter("com.ran.agent.RELOAD")
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(reloader, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(reloader, filter)
+        }
 
         web.loadUrl("https://ran.ran-ai.pro")
 
-        // 启动不弹键盘：把焦点交给根容器
+        // 启动不抢焦点、不弹键盘
         root.isFocusableInTouchMode = true
         root.requestFocus()
-        input.clearFocus()
-        window.setSoftInputMode(
-            android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
-        root.postDelayed({ applyConfig("init") }, 320)
+        root.postDelayed({ applyConfig("init") }, 300)
         root.viewTreeObserver.addOnGlobalLayoutListener { applyRects() }
+    }
+
+    private var topBar: View? = null
+    private var insetTop = 0
+    private var insetBottom = 0
+    private var imeBottom = 0
+
+    /** 位置跟随系统栏与输入法：顶栏贴状态栏下，输入岛浮在键盘上方 */
+    private fun applyLayout() {
+        topBar?.let { v ->
+            val lp = v.layoutParams as FrameLayout.LayoutParams
+            if (lp.topMargin != insetTop + dp(6)) {
+                lp.topMargin = insetTop + dp(6)
+                lp.leftMargin = dp(6)
+                lp.rightMargin = dp(6)
+                v.layoutParams = lp
+            }
+        }
+        if (this::island.isInitialized) {
+            val v: FrameLayout = island
+            val lp = v.layoutParams as FrameLayout.LayoutParams
+            val want = insetBottom + imeBottom + dp(14)
+            if (lp.bottomMargin != want) {
+                lp.bottomMargin = want
+                lp.leftMargin = dp(12)
+                lp.rightMargin = dp(12)
+                v.layoutParams = lp
+            }
+        }
+        root.postDelayed({ applyRects() }, 60)
+        if (this::web.isInitialized) root.postDelayed({ injectShellCss() }, 80)
     }
 
     override fun onDestroy() {
@@ -121,12 +174,13 @@ class MainActivity : Activity() {
     /* ---------------- 热调试配置 ---------------- */
 
     private class GlassCfg {
-        var bevel = 20f
-        var refraction = 24f
-        var dispersion = 1.4f
-        var blurR = 6f
-        var tintA = 0.06f
-        var rimA = 0.55f
+        var bevel = 14f
+        var refraction = 12f
+        var dispersion = 1.0f
+        var blurR = 20f
+        var tintA = 0.10f
+        var rimA = 0.70f
+        var falloff = 26f
 
         override fun toString() =
             "bevel=${bevel.toInt()} refr=${refraction.toInt()} disp=$dispersion blur=${blurR.toInt()}"
@@ -152,6 +206,7 @@ class MainActivity : Activity() {
                 "blurR" -> c.blurR = v
                 "tintA" -> c.tintA = v
                 "rimA" -> c.rimA = v
+                "falloff" -> c.falloff = v
             }
         }
         return c
@@ -233,6 +288,7 @@ class MainActivity : Activity() {
             setF(s, "blurR", cfg.blurR * d)
             setF(s, "tintA", cfg.tintA)
             setF(s, "rimA", cfg.rimA)
+            setF(s, "falloff", cfg.falloff * d)
             // 关键：uniform 必须在创建 RenderEffect 之前写好，否则 effect 里拿到的是全 0。
             // 所以每次改参数都重建一次 effect（开销很小，只在参数变化时发生）。
             web.setRenderEffect(RenderEffect.createRuntimeShaderEffect(s, "content"))
@@ -275,11 +331,13 @@ class MainActivity : Activity() {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
+        row.setPadding(0, dp(4), 0, dp(4))
 
         val left = FrameLayout(this)
-        left.addView(icon("\u2630", 48) { clickWeb("burger") })
-        row.addView(left, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
-        glassTargets.add(Pair(left, dp(24).toFloat()))
+        val ic = icon("\u2630", 44) { clickWeb("burger") }
+        left.addView(ic, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
+        row.addView(left, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(8) })
+        glassTargets.add(Pair(left, dp(22).toFloat()))
 
         val mid = FrameLayout(this)
         mid.addView(TextView(this).apply {
@@ -290,8 +348,8 @@ class MainActivity : Activity() {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         })
-        row.addView(mid, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(8) })
-        glassTargets.add(Pair(mid, dp(24).toFloat()))
+        row.addView(mid, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(8) })
+        glassTargets.add(Pair(mid, dp(22).toFloat()))
 
         val right = FrameLayout(this)
         val rr = LinearLayout(this)
@@ -301,8 +359,8 @@ class MainActivity : Activity() {
         rr.addView(icon("\u22EF", 44) { clickWeb("dots") })
         right.addView(rr, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER))
-        row.addView(right, LinearLayout.LayoutParams(dp(92), dp(48)))
-        glassTargets.add(Pair(right, dp(24).toFloat()))
+        row.addView(right, LinearLayout.LayoutParams(dp(92), dp(44)))
+        glassTargets.add(Pair(right, dp(22).toFloat()))
 
         return row
     }
@@ -342,9 +400,18 @@ class MainActivity : Activity() {
         input.background = null
         input.setPadding(0, dp(10), 0, dp(10))
         input.maxLines = 1
+        input.isSingleLine = true
+        input.isFocusableInTouchMode = false
         input.layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         input.setSelectAllOnFocus(false)
+        input.setOnClickListener {
+            input.isFocusableInTouchMode = true
+            input.requestFocus()
+            val imm = getSystemService(INPUT_METHOD_SERVICE)
+                    as android.view.inputmethod.InputMethodManager
+            imm.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
         input.setOnFocusChangeListener { _, has ->
             expandIsland(has)
             if (!has) {
@@ -378,7 +445,8 @@ class MainActivity : Activity() {
         col.addView(btnRow)
 
         g.addView(col, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+            Gravity.CENTER_VERTICAL))
         glassTargets.add(Pair(g, dp(28).toFloat()))
         return g
     }
@@ -411,7 +479,14 @@ class MainActivity : Activity() {
                 if (!islandExpanded) btnRow.visibility = View.GONE
             }.start()
         }
-        input.maxLines = if (on) 4 else 1
+        if (on) {
+            input.isSingleLine = false
+            input.maxLines = 4
+        } else {
+            input.isSingleLine = true
+            input.maxLines = 1
+            input.isFocusableInTouchMode = false
+        }
         root.postDelayed({ applyRects() }, 260)
     }
 
@@ -473,6 +548,7 @@ class MainActivity : Activity() {
                 super.onPageFinished(view, url)
                 injectShellCss()
                 root.postDelayed({ applyRects() }, 400)
+                root.postDelayed({ injectShellCss() }, 1200)
             }
         }
     }
@@ -481,11 +557,19 @@ class MainActivity : Activity() {
      * 只隐藏网页自身的顶栏/输入区，给聊天流补 padding。
      * 全程运行时注入，网页源码零改动 —— 鸿蒙 / 桌面端不受影响。
      */
+    private var lastPad = -1
+
     private fun injectShellCss() {
+        val d = resources.displayMetrics.density
+        val topPad = ((insetTop + dp(52) + dp(10)) / d).toInt()
+        val botPad = ((insetBottom + dp(56) + dp(26)) / d).toInt()
+        val key = topPad * 1000 + botPad
+        if (key == lastPad) return
+        lastPad = key
         val css = """
             #mhead,#inwrap,#inputzone,#sendbtn{display:none!important}
-            #chat{padding-bottom:96px!important}
-            #chatinner{padding-top:86px!important}
+            #chat{padding-bottom:${botPad}px!important}
+            #chatinner{padding-top:${topPad}px!important}
             html,body{background:#F7F7F8!important}
         """.trimIndent()
         val js = "(function(){var s=document.getElementById('ran-shell-css');" +

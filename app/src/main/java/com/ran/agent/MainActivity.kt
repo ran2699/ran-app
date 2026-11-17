@@ -171,15 +171,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 把玻璃控件的位置换算成 WebView 本地坐标，写进 shader 的 rects 数组 */
+    /** 把玻璃控件的位置换算成 WebView 本地坐标，逐个写入 shader 标量 uniform */
     private fun applyRects() {
         val s = shader ?: return
-        val n = minOf(glassTargets.size, 8)
-        val rects = FloatArray(32)
-        val radii = FloatArray(8)
-        var k = 0
-        for (i in 0 until n) {
-            val v = glassTargets[i].first
+        val d = resources.displayMetrics.density
+        val rects = ArrayList<FloatArray>()
+        for ((v, r) in glassTargets) {
+            if (rects.size >= 4) break
             if (v.width <= 0 || v.height <= 0 || v.visibility != View.VISIBLE) continue
             val loc = IntArray(2)
             v.getLocationOnScreen(loc)
@@ -187,25 +185,35 @@ class MainActivity : AppCompatActivity() {
             web.getLocationOnScreen(wloc)
             val l = (loc[0] - wloc[0]).toFloat()
             val t = (loc[1] - wloc[1]).toFloat()
-            rects[k * 4] = l
-            rects[k * 4 + 1] = t
-            rects[k * 4 + 2] = l + v.width
-            rects[k * 4 + 3] = t + v.height
-            radii[k] = glassTargets[i].second
-            k++
+            rects.add(floatArrayOf(l, t, l + v.width, t + v.height, r))
         }
         try {
-            s.setFloatUniform("rects", rects, 0, 32)
-            s.setFloatUniform("radii", radii, 0, 8)
-            s.setIntUniform("count", k)
-            s.setFloatUniform("bevel", cfg.bevel * resources.displayMetrics.density)
-            s.setFloatUniform("refraction", cfg.refraction * resources.displayMetrics.density)
-            s.setFloatUniform("dispersion", cfg.dispersion * resources.displayMetrics.density)
-            s.setFloatUniform("blurR", cfg.blurR * resources.displayMetrics.density)
+            for (i in 0 until 4) {
+                if (i < rects.size) {
+                    val rc = rects[i]
+                    s.setFloatUniform("r" + i + "x", rc[0])
+                    s.setFloatUniform("r" + i + "y", rc[1])
+                    s.setFloatUniform("r" + i + "z", rc[2])
+                    s.setFloatUniform("r" + i + "w", rc[3])
+                    s.setFloatUniform("r" + i + "r", rc[4])
+                } else {
+                    s.setFloatUniform("r" + i + "x", 0f)
+                    s.setFloatUniform("r" + i + "y", 0f)
+                    s.setFloatUniform("r" + i + "z", 0f)
+                    s.setFloatUniform("r" + i + "w", 0f)
+                    s.setFloatUniform("r" + i + "r", 0f)
+                }
+            }
+            s.setFloatUniform("bevel", cfg.bevel * d)
+            s.setFloatUniform("refraction", cfg.refraction * d)
+            s.setFloatUniform("dispersion", cfg.dispersion * d)
+            s.setFloatUniform("blurR", cfg.blurR * d)
             s.setFloatUniform("tintA", cfg.tintA)
             s.setFloatUniform("rimA", cfg.rimA)
             web.invalidate()
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            showProbe("uniform 写入失败：" + t.javaClass.simpleName)
+        }
     }
 
     /* ---------------- 顶栏 ---------------- */

@@ -35,6 +35,7 @@ import android.widget.TextView
 import com.example.liquidglass.GlassMaterial
 import com.example.liquidglass.LiquidGlassView
 import com.example.liquidglass.ScrollEdgeBlurView
+import org.json.JSONArray
 import java.io.File
 
 /**
@@ -175,7 +176,7 @@ class MainActivity : Activity() {
             }
         }
         gPlus = glassBox(dp(22f)) { icon("\uFF0B") { clickWeb("mnew") } }
-        gDots = glassBox(dp(22f)) { icon("\u22EF") { clickWeb("dots") } }
+        gDots = glassBox(dp(22f)) { icon("\u22EF") { openDotsPanel() } }
 
         // ③ 输入岛
         island = buildIsland()
@@ -650,6 +651,180 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         }
     }
 
+    /* ================= 原生浮层：玻璃面板 + 网页桥 ================= */
+
+    class MenuItem(val title: String, val isGroup: Boolean = false, val onClick: (() -> Unit)? = null)
+
+    private var menuLayer: FrameLayout? = null
+    private var menuGlass: LiquidGlassView? = null
+
+    /**
+     * 读网页里的值并回传。用 base64 传 JSON，避开 evaluateJavascript 的转义地狱。
+     */
+    private fun evalJson(expr: String, cb: (String) -> Unit) {
+        val wrap = "(function(){try{var v=($expr);" +
+                "return btoa(unescape(encodeURIComponent(JSON.stringify(v))))}catch(e){return ''}})()"
+        web.evaluateJavascript(wrap) { r ->
+            val raw = (r ?: "").trim().trim('"')
+            val out = try {
+                String(android.util.Base64.decode(raw, android.util.Base64.DEFAULT), Charsets.UTF_8)
+            } catch (t: Throwable) { "" }
+            cb(out)
+        }
+    }
+
+    private fun dismissMenu() {
+        menuLayer?.let { root.removeView(it) }
+        menuLayer = null
+        menuGlass?.let { milks.remove(it) }
+        menuGlass = null
+    }
+
+    /**
+     * 原生玻璃浮层。外观是原生液态玻璃，内容项的点击一律转调网页原函数，
+     * 所以功能逻辑零重写、不会退化。
+     */
+    private fun showGlassMenu(anchor: View, items: List<MenuItem>, above: Boolean) {
+        dismissMenu()
+        val layer = FrameLayout(this)
+        val scrim = View(this)
+        scrim.setOnClickListener { dismissMenu() }
+        layer.addView(scrim, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        val col = LinearLayout(this)
+        col.orientation = LinearLayout.VERTICAL
+        col.setPadding(dp(7), dp(7), dp(7), dp(7))
+        for (it in items) {
+            if (it.isGroup) {
+                val h = TextView(this)
+                h.text = it.title
+                h.textSize = 11.5f
+                h.setTextColor(0xFF8A8A90.toInt())
+                h.setPadding(dp(11), dp(9), dp(11), dp(3))
+                col.addView(h)
+            } else {
+                val tv = TextView(this)
+                tv.text = it.title
+                tv.textSize = 15f
+                tv.setTextColor(0xFF1A1A1C.toInt())
+                tv.setPadding(dp(11), dp(11), dp(11), dp(11))
+                tv.isClickable = true
+                val bg = GradientDrawable()
+                bg.cornerRadius = dp(12f)
+                bg.setColor(0x00FFFFFF)
+                tv.background = bg
+                tv.setOnClickListener {
+                    dismissMenu()
+                    it.onClick?.invoke()
+                }
+                col.addView(tv)
+            }
+        }
+
+        val glass = LiquidGlassView(this)
+        glass.cornerRadius = dp(20f)
+        glass.useShaderPipeline = true
+        glass.material = GlassMaterial.REGULAR
+        glass.enableDynamicBackground = true
+        glass.enableEdgeHighlight = true
+        glass.enableShadow = false
+        glass.clipChildren = false
+        val mv = View(this)
+        glass.addView(mv, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        milks[glass] = mv
+        menuGlass = glass
+        glass.addView(col, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        val lp = FrameLayout.LayoutParams(dp(236), ViewGroup.LayoutParams.WRAP_CONTENT)
+        layer.addView(glass, lp)
+        root.addView(layer, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        menuLayer = layer
+
+        // 布局完成后再定位，否则拿不到测量高度
+        glass.post {
+            val p = glass.layoutParams as FrameLayout.LayoutParams
+            p.width = dp(236)
+            p.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            if (above) {
+                p.gravity = Gravity.BOTTOM or Gravity.END
+                p.bottomMargin = maxOf(dp(10), root.height - anchor.top + dp(8))
+                p.rightMargin = dp(10)
+            } else {
+                p.gravity = Gravity.TOP or Gravity.END
+                p.topMargin = anchor.bottom + dp(6)
+                p.rightMargin = dp(10)
+            }
+            glass.layoutParams = p
+            applyMilk()
+        }
+    }
+
+    /** 附件菜单：对应网页 #pluspanel（拍照 / 相册 / 文件），点击转调网页 pickFile */
+    private fun openPlusPanel() {
+        evalJs("closeFloatPanels('')")
+        showGlassMenu(island, listOf(
+            MenuItem("拍照") { evalJs("pickFile(true,true)") },
+            MenuItem("相册") { evalJs("pickFile(false,true)") },
+            MenuItem("文件") { evalJs("pickFile(false,false)") }
+        ), true)
+    }
+
+    /** ⋯ 菜单：读网页全局 menuCache，模型项点击走 /setmodel + setModelLabel */
+    private fun openDotsPanel() {
+        evalJs("closeFloatPanels('')")
+        evalJson("({menu:(typeof menuCache!=='undefined'?menuCache:[])})") { raw ->
+            runOnUiThread {
+                val items = ArrayList<MenuItem>()
+                items.add(MenuItem("随身备忘") { evalJs("toggleMemo()") })
+                items.add(MenuItem("本会话文件") { evalJs("openSessFiles()") })
+                // 解析结构：{menu:[{group,models:[{id,name}]}]}
+                try {
+                    val o = org.json.JSONObject(raw)
+                    val menu = o.optJSONArray("menu")
+                    if (menu != null) {
+                        for (gi in 0 until menu.length()) {
+                            val g = menu.optJSONObject(gi) ?: continue
+                            items.add(MenuItem(g.optString("group"), isGroup = true))
+                            val ms = g.optJSONArray("models") ?: continue
+                            for (mi in 0 until ms.length()) {
+                                val m = ms.optJSONObject(mi) ?: continue
+                                val id = m.optString("id")
+                                val nm = m.optString("name", id)
+                                if (id.isBlank()) continue
+                                items.add(MenuItem(nm) {
+                                    evalJs("(async function(){try{" +
+                                            "await fetch('/setmodel',{method:'POST',headers:" +
+                                            "{'Content-Type':'application/json'}," +
+                                            "body:JSON.stringify({id:" + jsStr(id) + "})});" +
+                                            "setModelLabel(" + jsStr(nm) + ");" +
+                                            "if(typeof menuCache!=='undefined'){for(var i=0;i<menuCache.length;i++){" +
+                                            "var ms=menuCache[i].models||[];for(var j=0;j<ms.length;j++){" +
+                                            "if(ms[j].id===" + jsStr(id) + "){ms[j].cur=1;}}}}" +
+                                            "}catch(e){}})()")
+                                })
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {}
+                showGlassMenu(gDots, items, false)
+            }
+        }
+    }
+
+    private fun evalJs(js: String) {
+        web.evaluateJavascript(js, null)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (menuLayer != null) { dismissMenu(); return }
+        super.onBackPressed()
+    }
+
     private fun setter(name: String) = "set" + name.replaceFirstChar { it.uppercase() }
 
     /** 通用写入：按 Boolean -> Float -> Int 依次尝试同名 setter（属性名即 cfg key） */
@@ -824,7 +999,7 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         btnRow.alpha = 0f
 
         val plus = circle(38, 0xFFEFF0F2.toInt(), "\uFF0B")
-        plus.setOnClickListener { clickWeb("plusbtn") }
+        plus.setOnClickListener { openPlusPanel() }
         btnRow.addView(plus)
         btnRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         val send = circle(38, 0xFF1A1A1C.toInt(), "\u2191")
@@ -997,7 +1172,16 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         val key = topPad * 1000 + botPad
         if (key == lastPad) return
         lastPad = key
-        val css = "#mhead,#inwrap,#inputzone,#sendbtn{display:none!important}" +
+        // 关键：不再 display:none 整个 #inputzone —— 那会连带杀死
+        // #pluspanel/#permpanel/#attbar/#wakebar/#queuebar（实测点「+」仅 745 像素变化 = 无反应）。
+        // 改为只隐藏输入框本体，其余状态条保留并上移到原生输入岛之上。
+        val islandH = ((insetBottom + dp(56) + dp(14)) / d).toInt()
+        val css = "#mhead{display:none!important}" +
+                "#inwrap{display:none!important}" +
+                "#sendbtn{display:none!important}" +
+                "#pluspanel,#dotspanel,#agentpanel,#permpanel{display:none!important}" +
+                "#inputzone{background:transparent!important;bottom:${islandH}px!important;" +
+                "left:0!important;right:0!important}" +
                 "#chat{padding-bottom:${botPad}px!important}" +
                 "#chatinner{padding-top:${topPad}px!important}" +
                 "html,body{background:#F7F7F8!important}"

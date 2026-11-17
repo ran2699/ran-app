@@ -571,7 +571,6 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         shadowRing.blurPx = (cfg["shadowBlur"] ?: 14f) * d
         shadowRing.dyPx = (cfg["shadowDy"] ?: 5f) * d
         shadowRing.invalidateShadow()
-        Log.i(TAG, "shadow a=${shadowRing.alphaPx} blur=${shadowRing.blurPx} dy=${shadowRing.dyPx}")
     }
 
     private fun invalidateEdges() {
@@ -604,18 +603,18 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
                 targets.add(gBurger); targets.add(gPill); targets.add(gPlus)
                 targets.add(gDots); targets.add(island)
             }
-            Log.i(TAG, "SR.onDraw a=$alphaPx blur=$blurPx dy=$dyPx n=${targets.size} " +
-                    "self=${width}x$height canvas=${canvas.width}x${canvas.height}")
+            // 库的 BackdropLuminanceMeter 会把父视图缩绘成 24x24 估亮度，
+            // 那次会被动触发本 View 的 onDraw —— 在缩略图上画阴影毫无意义且浪费，直接跳过。
+            if (canvas.width < 100 || canvas.height < 100) return
             if (alphaPx <= 0 || blurPx <= 0f) return
             for (v in targets) {
+                // 注意：不能看 visibility —— 玻璃在录制背景时会被库临时设为 INVISIBLE，
+                // 而真实绘制恰好也会经过这个状态。只按几何判断。
+                if (v.width <= 0 || v.height <= 0) continue
                 val corner = if (v is LiquidGlassView) v.cornerRadius else 0f
-                Log.i(TAG, " target ${v.javaClass.simpleName} vis=${v.visibility} " +
-                        "rect=${v.left},${v.top},${v.right},${v.bottom} corner=$corner")
-                if (v.visibility != View.VISIBLE || v.width <= 0 || v.height <= 0) continue
                 val key = (v.width * 31 + v.height) * 31 + corner.toInt()
                 val bmp = cache[key] ?: render(v.width, v.height, corner)?.also { cache[key] = it }
-                if (bmp == null) { Log.w(TAG, "  bitmap null"); continue }
-                Log.i(TAG, "  bmp=${bmp.width}x${bmp.height} draw at ${v.left - pad},${v.top - pad}")
+                if (bmp == null) continue
                 canvas.drawBitmap(bmp, (v.left - pad).toFloat(), (v.top - pad).toFloat(), null)
             }
         }

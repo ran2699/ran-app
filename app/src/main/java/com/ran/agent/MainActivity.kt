@@ -1,24 +1,23 @@
 package com.ran.agent
 
-import android.animation.ValueAnimator
 import android.annotation.SuppressLint
+import android.animation.ValueAnimator
+import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
-import android.graphics.RuntimeShader
-import android.graphics.RenderEffect
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
-import android.view.View
-import android.view.ViewGroup
 import android.view.animation.PathInterpolator
 import android.view.inputmethod.EditorInfo
 import android.webkit.WebView
@@ -27,68 +26,78 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.app.Activity
+import com.example.liquidglass.GlassMaterial
+import com.example.liquidglass.LiquidGlassView
 import java.io.File
 
 /**
- * 原生液态玻璃外壳 · AGSL 折射版
+ * 原生液态玻璃外壳 · 使用 LiquidGlassView（QWEA0/Liquid-Glass-Android，MIT）
  *
- * 玻璃由挂在 WebView 自身上的 RuntimeShader 绘制（RenderEffect），不经过
- * RenderNode 重放，因此 WebView 的 DrawFunctor 正常执行 —— 这是能折射到网页内容的原因。
- * 顶栏 / 输入岛的圆角矩形把屏幕分区，区内折射+模糊+色散+边缘高光，区外原样输出。
+ * 架构（库文档明确要求的两条）：
+ *  1. 玻璃视图与 WebView 必须在同一个 FrameLayout 里，玻璃写在 WebView 之后 ——
+ *     玻璃捕获的是"直接父容器"已绘制的内容。
+ *  2. 覆盖在 WebView 上时必须给 WebView 加硬件层（LAYER_TYPE_HARDWARE），
+ *     否则背景捕获取不到 WebView 的像素（会得到恒定灰）。
+ *  3. 背景会变（滚动）时必须 enableDynamicBackground = true，否则玻璃冻结在首帧。
  *
- * 热调试：shader 与参数从设备目录读取，改动后广播重载，无需重新构建 APK。
- *   adb push glass.glsl  /sdcard/Android/data/com.ran.agent/files/glass.glsl
- *   adb push glass.cfg   /sdcard/Android/data/com.ran.agent/files/glass.cfg
+ * 折射/色散/高光/自适应染色全部由库的 AGSL 透镜管线完成（API 33+），不再自绘 shader。
+ *
+ * 热调试（不重新出包）：参数从设备目录读取，改完广播重载
+ *   adb push glass.cfg /sdcard/Android/data/com.ran.agent/files/glass.cfg
  *   adb shell am broadcast -a com.ran.agent.RELOAD
  */
 class MainActivity : Activity() {
 
     private lateinit var root: FrameLayout
     private lateinit var web: WebView
-    private lateinit var island: FrameLayout
+    private lateinit var island: LiquidGlassView
     private lateinit var input: EditText
     private lateinit var btnRow: LinearLayout
 
+    private lateinit var gBurger: LiquidGlassView
+    private lateinit var gPill: LiquidGlassView
+    private lateinit var gPlus: LiquidGlassView
+    private lateinit var gDots: LiquidGlassView
+
     private var islandExpanded = false
-    private val glassTargets = ArrayList<Pair<View, Float>>()
-    private var shader: RuntimeShader? = null
-    private var shaderSrc = ""
-
-    /** 串联链上的每一趟：同一份 shader 源码，mode=0 模糊 / mode=1 材质 */
-    private class Pass(val sh: RuntimeShader, val mode: Float, val radius: Float)
-    private val passes = ArrayList<Pass>()
-    private val cfg = LinkedHashMap<String, Float>()
-
-    private var probe: TextView? = null
+    private var insetTop = 0
+    private var insetBottom = 0
+    private var imeBottom = 0
+    private var lastPad = -1
 
     private val TAG = "RanGlass"
 
+    /* cfg 里出现什么就写什么；单位 dp 的在写入前乘 density */
+    private val CFG_DEFAULTS = linkedMapOf(
+        "bevel" to 16f, "refr" to 22f, "falloff" to 2.2f, "disp" to 0.07f,
+        "corner" to 22f, "islandCorner" to 28f, "sensor" to 1f, "adaptive" to 1f,
+        "probe" to 0f
+    )
+    private val cfg = LinkedHashMap<String, Float>()
+
     private val reloader = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
-            applyConfig("reload")
+            loadCfg()
+            applyGlassParams()
             runDemoJs()
+            Log.i(TAG, "reload bevel=" + cfg["bevel"] + " refr=" + cfg["refr"] +
+                    " disp=" + cfg["disp"])
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 必须在 super.onCreate 之前，否则无效 —— 这是 "RAN Glass" 标题栏的成因
         requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         super.onCreate(savedInstanceState)
 
-        // 沉浸式：玻璃延伸到状态栏/导航栏下面（苹果的做法）
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
-        if (Build.VERSION.SDK_INT >= 30) {
-            window.setDecorFitsSystemWindows(false)
-        }
+        if (Build.VERSION.SDK_INT >= 30) window.setDecorFitsSystemWindows(false)
 
         root = FrameLayout(this)
         root.setBackgroundColor(0xFFF7F7F8.toInt())
         setContentView(root)
 
-        // insetsController 依赖 DecorView，必须在 setContentView 之后取，否则 NPE
         if (Build.VERSION.SDK_INT >= 30) {
             try {
                 window.insetsController?.setSystemBarsAppearance(
@@ -99,350 +108,179 @@ class MainActivity : Activity() {
             } catch (_: Throwable) {}
         }
 
+        loadCfg()
+
+        // ① WebView 先进，且加硬件层（玻璃捕获的前提）
         web = WebView(this)
         root.addView(web, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        try {
+            web.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        } catch (_: Throwable) {}
         setupWeb()
 
-        val tb = buildTopBar()
-        topBar = tb
-        root.addView(tb, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        // ② 四块玻璃直接挂在 root（与 WebView 同父），必须写在 WebView 之后
+        gBurger = glassBox(dp(22f)) { icon("\u2630") { clickWeb("burger") } }
+        gPill = glassBox(dp(22f)) {
+            TextView(this).apply {
+                text = "Orion"
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setTextColor(0xFF1A1A1C.toInt())
+            }
+        }
+        gPlus = glassBox(dp(22f)) { icon("\uFF0B") { clickWeb("mnew") } }
+        gDots = glassBox(dp(22f)) { icon("\u22EF") { clickWeb("dots") } }
 
+        // ③ 输入岛
         island = buildIsland()
-        // 必须显式 Gravity.BOTTOM：否则 bottomMargin 不会被解析，输入岛会跑到顶部压住顶栏
         root.addView(island, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(H_COLLAPSE), Gravity.BOTTOM))
 
+        applyGlassParams()
+
         root.setOnApplyWindowInsetsListener { _, ins ->
             if (Build.VERSION.SDK_INT >= 30) {
-                val sb = ins.getInsets(WindowInsets.Type.statusBars())
-                val nb = ins.getInsets(WindowInsets.Type.navigationBars())
-                val im = ins.getInsets(WindowInsets.Type.ime())
-                insetTop = sb.top
-                insetBottom = nb.bottom
-                imeBottom = maxOf(0, im.bottom - nb.bottom)
+                insetTop = ins.getInsets(WindowInsets.Type.statusBars()).top
+                insetBottom = ins.getInsets(WindowInsets.Type.navigationBars()).bottom
+                imeBottom = maxOf(0, ins.getInsets(WindowInsets.Type.ime()).bottom - insetBottom)
             } else {
+                @Suppress("DEPRECATION")
                 insetTop = ins.systemWindowInsetTop
+                @Suppress("DEPRECATION")
                 insetBottom = ins.systemWindowInsetBottom
                 imeBottom = 0
             }
             applyLayout()
-            Log.i(TAG, "insets top=" + insetTop + " bottom=" + insetBottom +
-                    " ime=" + imeBottom + " density=" + resources.displayMetrics.density)
+            Log.i(TAG, "insets top=$insetTop bottom=$insetBottom ime=$imeBottom dens=" +
+                    resources.displayMetrics.density)
             ins
         }
 
         val filter = IntentFilter("com.ran.agent.RELOAD")
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(reloader, filter, Context.RECEIVER_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(reloader, filter)
-        }
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(reloader, filter, Context.RECEIVER_EXPORTED)
+        else @Suppress("UnspecifiedRegisterReceiverFlag") registerReceiver(reloader, filter)
 
         web.loadUrl("https://ran.ran-ai.pro")
 
-        // 启动不抢焦点、不弹键盘
         root.isFocusableInTouchMode = true
         root.requestFocus()
 
-        root.postDelayed({ applyConfig("init") }, 300)
-        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applyRects() }
+        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutTopBar() }
     }
 
-    private var topBar: View? = null
-    private var insetTop = 0
-    private var insetBottom = 0
-    private var imeBottom = 0
+    /* ---------------- 玻璃 ---------------- */
 
-    /** 位置跟随系统栏与输入法：顶栏贴状态栏下，输入岛浮在键盘上方 */
-    private fun applyLayout() {
-        topBar?.let { v ->
-            val lp = v.layoutParams as FrameLayout.LayoutParams
-            if (lp.topMargin != insetTop + dp(6)) {
-                lp.topMargin = insetTop + dp(6)
-                lp.leftMargin = dp(6)
-                lp.rightMargin = dp(6)
-                v.layoutParams = lp
+    private fun glassBox(radius: Float, content: (FrameLayout) -> View): LiquidGlassView {
+        val g = LiquidGlassView(this)
+        g.cornerRadius = radius
+        g.useShaderPipeline = true
+        g.material = GlassMaterial.REGULAR
+        g.enableDynamicBackground = true      // 页面滚动/变化时玻璃跟着刷新，不加就是冻结的
+        g.enableEdgeHighlight = true
+        g.enableShadow = false                // 不描黑边
+        g.clipChildren = false
+        val c = content(g)
+        g.addView(c, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(g, FrameLayout.LayoutParams(dp(44), dp(44)))
+        return g
+    }
+
+    /** 把 cfg 应用到所有玻璃；单位是 dp 的在这里换算成 px（库的参数都是 px） */
+    private fun applyGlassParams() {
+        val d = resources.displayMetrics.density
+        val bevel = (cfg["bevel"] ?: 16f) * d
+        val refr = (cfg["refr"] ?: 22f) * d
+        val falloff = cfg["falloff"] ?: 2.2f
+        val disp = cfg["disp"] ?: 0.07f
+        val sensor = (cfg["sensor"] ?: 1f) > 0.5f
+        val adaptive = (cfg["adaptive"] ?: 1f) > 0.5f
+        for (g in listOf(gBurger, gPill, gPlus, gDots, island)) {
+            try {
+                g.bevelWidth = bevel
+                g.refractionHeight = refr
+                g.refractionFalloff = falloff
+                g.dispersionStrength = disp
+                g.enableSensorHighlight = sensor
+                g.enableAdaptiveTint = adaptive
+            } catch (t: Throwable) {
+                Log.e(TAG, "applyGlassParams 失败", t)
             }
         }
+        gBurger.cornerRadius = cfg["corner"]?.times(d) ?: dp(22f)
+        gPill.cornerRadius = cfg["corner"]?.times(d) ?: dp(22f)
+        gPlus.cornerRadius = cfg["corner"]?.times(d) ?: dp(22f)
+        gDots.cornerRadius = cfg["corner"]?.times(d) ?: dp(22f)
+        island.cornerRadius = if (islandExpanded) dp(26f)
+        else (cfg["islandCorner"]?.times(d) ?: dp(28f))
+        if ((cfg["probe"] ?: 0f) > 0.5f) showProbe("glass bevel=${bevel.toInt()} refr=${refr.toInt()}")
+    }
+
+    /* ---------------- 布局 ---------------- */
+
+    /** 四块玻璃直接挂在 root 上，宽度靠边距算（FrameLayout 没有 weight） */
+    private fun layoutTopBar() {
+        val w = root.width
+        if (w <= 0) return
+        val gap = dp(8)
+        val side = dp(44)
+        val h = dp(44)
+        val top = insetTop + dp(6)
+        val left0 = dp(12)
+        val right0 = dp(12)
+
+        fun place(v: View, l: Int, t: Int, ww: Int) {
+            val p = v.layoutParams as FrameLayout.LayoutParams
+            if (p.leftMargin == l && p.topMargin == t && p.width == ww && p.height == h) return
+            p.gravity = Gravity.TOP or Gravity.LEFT
+            p.leftMargin = l
+            p.topMargin = t
+            p.width = ww
+            p.height = h
+            v.layoutParams = p
+        }
+
+        place(gBurger, left0, top, side)
+        place(gDots, w - right0 - side, top, side)
+        place(gPlus, w - right0 - side * 2 - gap, top, side)
+        val pillL = left0 + side + gap
+        val pillR = w - right0 - side * 2 - gap * 2
+        place(gPill, pillL, top, (pillR - pillL).coerceAtLeast(dp(80)))
+    }
+
+    private fun applyLayout() {
+        layoutTopBar()
         if (this::island.isInitialized) {
-            val v: FrameLayout = island
-            val lp = v.layoutParams as FrameLayout.LayoutParams
+            val lp = island.layoutParams as FrameLayout.LayoutParams
             val want = insetBottom + imeBottom + dp(14)
-            if (lp.bottomMargin != want) {
+            if (lp.bottomMargin != want || lp.leftMargin != dp(12) || lp.rightMargin != dp(12)) {
+                lp.gravity = Gravity.BOTTOM
                 lp.bottomMargin = want
                 lp.leftMargin = dp(12)
                 lp.rightMargin = dp(12)
-                v.layoutParams = lp
+                island.layoutParams = lp
             }
         }
-        root.postDelayed({ applyRects() }, 60)
-        if (this::web.isInitialized) root.postDelayed({ injectShellCss() }, 80)
     }
 
-    override fun onDestroy() {
-        try { unregisterReceiver(reloader) } catch (_: Throwable) {}
-        super.onDestroy()
-    }
+    /* ---------------- 控件 ---------------- */
 
-    /* ---------------- 热调试配置 ---------------- */
-
-    /**
-     * 参数表：cfg 里出现的任何 key 都按同名 uniform 写入 shader（setF 会先校验声明）。
-     * 于是在 shader 里新增参数只改 glsl + cfg 推文件即可，不必重新出包。
-     * 长度一律 dp，着色器内乘 dens 换算成设备像素。
-     */
-    private val CFG_DEFAULTS = linkedMapOf(
-        "bevel" to 7f, "refraction" to 5f, "disp" to 0f,
-        "tintA" to 0.40f, "rimA" to 2.0f, "crispA" to 0.26f,
-        "shadowA" to 0.28f, "shadowY" to 6f, "shadowR" to 18f,
-        "lightA" to -2.35f, "stages" to 2f, "probe" to 0f
-    )
-
-    private fun cfgDir() = getExternalFilesDir(null) ?: filesDir
-
-    /** 设备目录优先，不存在时回退到打包的 assets/glass.cfg */
-    private fun readCfg(): LinkedHashMap<String, Float> {
-        val m = LinkedHashMap(CFG_DEFAULTS)
-        val txt = try {
-            val f = File(cfgDir(), "glass.cfg")
-            if (f.exists() && f.length() > 8) f.readText()
-            else assets.open("glass.cfg").bufferedReader().use { it.readText() }
-        } catch (_: Throwable) {
-            return m
-        }
-        for (raw in txt.lineSequence()) {
-            val line = raw.substringBefore('#').trim()
-            if (line.isEmpty()) continue
-            val i = line.indexOf('=')
-            if (i <= 0) continue
-            val v = line.substring(i + 1).trim().toFloatOrNull() ?: continue
-            m[line.substring(0, i).trim()] = v
-        }
-        return m
-    }
-
-    private fun readShaderSrc(): String {
-        val f = File(cfgDir(), "glass.glsl")
-        if (f.exists() && f.length() > 64) {
-            try { return f.readText() } catch (_: Throwable) {}
-        }
-        return assets.open("glass.glsl").bufferedReader().use { it.readText() }
-    }
-
-    private fun applyConfig(why: String) {
-        cfg.clear()
-        cfg.putAll(readCfg())
-        if (Build.VERSION.SDK_INT < 33) {
-            showProbe("API " + Build.VERSION.SDK_INT + " · 需要 API 33+ 才能折射")
-            return
-        }
-        try {
-            shaderSrc = readShaderSrc()
-            lastRectKey = ""
-            createShaders()
-            applyRects()
-            val brief = "bevel=" + cfg["bevel"] + " refr=" + cfg["refraction"] +
-                    " tint=" + cfg["tintA"] + " stages=" + (cfg["stages"] ?: 2f).toInt()
-            Log.i(TAG, "shader OK why=" + why + " " + brief)
-            showProbe("玻璃已载入 · " + brief)
-        } catch (t: Throwable) {
-            Log.e(TAG, "shader FAIL " + (t.message ?: ""), t)
-            showProbe("shader 出错：" + t.javaClass.simpleName)
-            // 设备目录里的 shader 编译失败时回退到打包版，避免热调试把界面弄坏
-            try {
-                val fb = assets.open("glass.glsl").bufferedReader().use { it.readText() }
-                if (fb != shaderSrc) {
-                    shaderSrc = fb
-                    lastRectKey = ""
-                    createShaders()
-                    applyRects()
-                    Log.i(TAG, "shader 已回退到 assets 版本")
-                }
-            } catch (_: Throwable) {}
-        }
-    }
-
-    /**
-     * 安全赋值：给 shader 里不存在的 uniform 赋值会触发 libhwui 的 native abort（进程直接死），
-     * 不是 Java 异常，catch 不住。所以先查源码里有没有声明。
-     */
-    private fun setF(s: RuntimeShader, name: String, v: Float) {
-        if (shaderSrc.contains("uniform float " + name)) s.setFloatUniform(name, v)
-    }
-
-    private var lastRectKey = ""
-
-    /**
-     * 多趟级联：模糊 -> 模糊 -> 材质。每趟在玻璃外恒等输出，页面其余部分完全不受影响。
-     * 单趟几十个采样在密集文字上不收敛（会出现织纹）；分级后每趟只处理已经平滑的输入，
-     * 实测对真高斯的 RMSE 由 0.033 降到 0.0045。趟数由 cfg 的 stages 热切换（1/2/3）。
-     */
-    private fun stageRadii(): FloatArray = when ((cfg["stages"] ?: 2f).toInt()) {
-        1 -> floatArrayOf(18f)
-        3 -> floatArrayOf(6f, 10f, 16f)
-        else -> floatArrayOf(8f, 14f)
-    }
-
-    /** 建 shader 实例（此刻 uniform 还没写，所以先不建 chain） */
-    private fun createShaders() {
-        passes.clear()
-        for (r in stageRadii()) passes.add(Pass(RuntimeShader(shaderSrc), 0f, r))
-        passes.add(Pass(RuntimeShader(shaderSrc), 1f, 0f))
-        shader = passes.lastOrNull()?.sh
-    }
-
-    /** 用已写好 uniform 的实例建 RenderEffect 链（链尾先执行） */
-    private fun createChain(): RenderEffect {
-        var eff: RenderEffect? = null
-        for (p in passes) {
-            val e = RenderEffect.createRuntimeShaderEffect(p.sh, "content")
-            eff = if (eff == null) e else RenderEffect.createChainEffect(e, eff)
-        }
-        return eff ?: RenderEffect.createRuntimeShaderEffect(
-            RuntimeShader(shaderSrc), "content")
-    }
-
-    /** 把玻璃控件的位置换算成 WebView 本地坐标，逐个写入 shader 标量 uniform */
-    private fun applyRects() {
-        if (passes.isEmpty()) return
-        val d = resources.displayMetrics.density
-        val rects = ArrayList<FloatArray>()
-        for ((v, r) in glassTargets) {
-            if (rects.size >= 6) break
-            if (v.width <= 0 || v.height <= 0 || v.visibility != View.VISIBLE) continue
-            val loc = IntArray(2)
-            v.getLocationOnScreen(loc)
-            val wloc = IntArray(2)
-            web.getLocationOnScreen(wloc)
-            val l = (loc[0] - wloc[0]).toFloat()
-            val t = (loc[1] - wloc[1]).toFloat()
-            rects.add(floatArrayOf(l, t, l + v.width, t + v.height, r))
-        }
-        // 位置没变就什么都不做：否则 setRenderEffect 会触发重绘，重绘又触发布局监听 → ANR
-        val key = StringBuilder()
-        for (rc in rects) {
-            for (f in rc) key.append(f.toInt()).append(',')
-        }
-        if (key.toString() == lastRectKey) return
-        lastRectKey = key.toString()
-
-        try {
-            val dilate = (cfg["refraction"] ?: 5f) * d + 3f
-            for (p in passes) {
-                val s = p.sh
-                for (i in 0 until 6) {
-                    if (i < rects.size) {
-                        val rc = rects[i]
-                        setF(s, "r" + i + "x", rc[0])
-                        setF(s, "r" + i + "y", rc[1])
-                        setF(s, "r" + i + "z", rc[2])
-                        setF(s, "r" + i + "w", rc[3])
-                        setF(s, "r" + i + "r", rc[4])
-                    } else {
-                        setF(s, "r" + i + "x", 0f)
-                        setF(s, "r" + i + "y", 0f)
-                        setF(s, "r" + i + "z", 0f)
-                        setF(s, "r" + i + "w", 0f)
-                        setF(s, "r" + i + "r", 0f)
-                    }
-                }
-                setF(s, "dens", d)
-                for ((k, v) in cfg) setF(s, k, v)
-                setF(s, "mode", p.mode)
-                setF(s, "blurR", p.radius)
-                setF(s, "dilate", dilate)
-            }
-            // 关键：uniform 必须在创建 RenderEffect 之前写好，否则 effect 里拿到的是全 0。
-            // 所以每次改参数都重建一次 chain（开销很小，只在参数或位置变化时发生）。
-            web.setRenderEffect(createChain())
-            web.invalidate()
-            if (rects.isNotEmpty()) {
-                val sb = StringBuilder("rects n=" + rects.size + " web=" +
-                        web.width + "x" + web.height + " |")
-                for (rc in rects) {
-                    sb.append(" [").append(rc[0].toInt()).append(',').append(rc[1].toInt())
-                        .append(' ').append(rc[2].toInt()).append(',').append(rc[3].toInt())
-                        .append(']')
-                }
-                Log.i(TAG, sb.toString())
-            } else {
-                Log.w(TAG, "rects 为空（玻璃控件还没测量）")
-            }
-        } catch (t: Throwable) {
-            Log.e(TAG, "uniform FAIL", t)
-            showProbe("uniform 写入失败：" + t.javaClass.simpleName)
-        }
-    }
-
-    /* ---------------- 顶栏 ---------------- */
-
-    private fun icon(txt: String, size: Int, onclick: () -> Unit): TextView {
+    private fun icon(txt: String, onclick: () -> Unit): TextView {
         return TextView(this).apply {
             text = txt
             textSize = 18f
             gravity = Gravity.CENTER
             setTextColor(0xFF1A1A1C.toInt())
             setOnClickListener { onclick() }
-            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
         }
     }
 
     private fun clickWeb(id: String) {
         web.evaluateJavascript(
-            "(function(){var b=document.getElementById('" + id + "');if(b){b.click();return 1}return 0})()",
+            "(function(){var b=document.getElementById('$id');if(b){b.click();return 1}return 0})()",
             null)
     }
-
-    /** 四块独立玻璃：☰ / 标题胶囊 / ＋ / ⋯，中间留缝（对齐 iOS 导航栏的玻璃按钮） */
-    private fun buildTopBar(): View {
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-        row.setPadding(0, dp(4), 0, dp(4))
-
-        fun box(w: Int, weight: Float, gap: Boolean, build: (FrameLayout) -> Unit) {
-            val b = FrameLayout(this)
-            build(b)
-            val lp = if (weight > 0f) LinearLayout.LayoutParams(0, dp(44), weight)
-            else LinearLayout.LayoutParams(dp(w), dp(44))
-            if (gap) lp.marginEnd = dp(8)
-            row.addView(b, lp)
-            glassTargets.add(Pair(b, dp(22).toFloat()))
-        }
-
-        box(44, 0f, true) { b ->
-            b.addView(icon("\u2630", 44) { clickWeb("burger") },
-                FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
-        }
-
-        box(0, 1f, true) { b ->
-            b.addView(TextView(this).apply {
-                text = "Orion"
-                textSize = 16f
-                gravity = Gravity.CENTER
-                setTextColor(0xFF1A1A1C.toInt())
-                layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            })
-        }
-
-        box(44, 0f, true) { b ->
-            b.addView(icon("\uFF0B", 44) { clickWeb("mnew") },
-                FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
-        }
-
-        box(44, 0f, false) { b ->
-            b.addView(icon("\u22EF", 44) { clickWeb("dots") },
-                FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
-        }
-
-        return row
-    }
-
-    /* ---------------- 输入岛 ---------------- */
 
     private companion object {
         const val H_COLLAPSE = 56
@@ -463,8 +301,16 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun buildIsland(): FrameLayout {
-        val g = FrameLayout(this)
+    private fun buildIsland(): LiquidGlassView {
+        val g = LiquidGlassView(this)
+        g.cornerRadius = dp(28f)
+        g.useShaderPipeline = true
+        g.material = GlassMaterial.REGULAR
+        g.enableDynamicBackground = true
+        g.enableEdgeHighlight = true
+        g.enableShadow = false
+        g.clipChildren = false
+
         val col = LinearLayout(this)
         col.orientation = LinearLayout.VERTICAL
         col.setPadding(dp(16), dp(2), dp(16), dp(2))
@@ -485,17 +331,11 @@ class MainActivity : Activity() {
         input.setOnClickListener {
             input.isFocusableInTouchMode = true
             input.requestFocus()
-            val imm = getSystemService(INPUT_METHOD_SERVICE)
-                    as android.view.inputmethod.InputMethodManager
-            imm.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            showIme()
         }
         input.setOnFocusChangeListener { _, has ->
             expandIsland(has)
-            if (!has) {
-                val imm = getSystemService(INPUT_METHOD_SERVICE)
-                        as android.view.inputmethod.InputMethodManager
-                imm.hideSoftInputFromWindow(input.windowToken, 0)
-            }
+            if (!has) hideIme()
         }
         input.setOnEditorActionListener { _, action, _ ->
             if (action == EditorInfo.IME_ACTION_SEND) {
@@ -524,8 +364,17 @@ class MainActivity : Activity() {
         g.addView(col, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
             Gravity.CENTER_VERTICAL))
-        glassTargets.add(Pair(g, dp(28).toFloat()))
         return g
+    }
+
+    private fun showIme() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun hideIme() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(input.windowToken, 0)
     }
 
     private fun expandIsland(on: Boolean) {
@@ -543,39 +392,28 @@ class MainActivity : Activity() {
             }
             va.start()
         }
-        val r = glassTargets.firstOrNull { it.first === island }
-        if (r != null) {
-            val idx = glassTargets.indexOf(r)
-            glassTargets[idx] = Pair(island, dp(if (on) 26 else 28).toFloat())
-        }
+        island.cornerRadius = dp(if (on) 26f else 28f)
         if (on) {
             btnRow.visibility = View.VISIBLE
             btnRow.animate().alpha(1f).setDuration(200).start()
+            input.isSingleLine = false
+            input.maxLines = 4
         } else {
             btnRow.animate().alpha(0f).setDuration(140).withEndAction {
                 if (!islandExpanded) btnRow.visibility = View.GONE
             }.start()
-        }
-        if (on) {
-            input.isSingleLine = false
-            input.maxLines = 4
-        } else {
             input.isSingleLine = true
             input.maxLines = 1
             input.isFocusableInTouchMode = false
         }
-        lastRectKey = ""
-        root.postDelayed({ applyRects() }, 260)
     }
 
     private fun doSend() {
         val t = input.text.toString()
         if (t.isBlank()) return
-        val js = "(function(){try{var i=document.getElementById('in');" +
-                "i.value=" + jsStr(t) + ";" +
+        val js = "(function(){try{var i=document.getElementById('in');i.value=" + jsStr(t) + ";" +
                 "i.dispatchEvent(new Event('input',{bubbles:true}));" +
-                "var s=document.getElementById('sendbtn');if(s)s.click();" +
-                "}catch(e){}})()"
+                "var s=document.getElementById('sendbtn');if(s)s.click();}catch(e){}})()"
         web.evaluateJavascript(js, null)
         input.setText("")
     }
@@ -583,10 +421,30 @@ class MainActivity : Activity() {
     private fun jsStr(s: String): String =
         "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\""
 
-    /* ---------------- 探针 ---------------- */
+    /* ---------------- cfg ---------------- */
+
+    private fun cfgDir() = getExternalFilesDir(null) ?: filesDir
+
+    private fun loadCfg() {
+        cfg.clear()
+        cfg.putAll(CFG_DEFAULTS)
+        val f = File(cfgDir(), "glass.cfg")
+        if (!f.exists() || f.length() < 8) return
+        try {
+            for (raw in f.readLines()) {
+                val line = raw.substringBefore('#').trim()
+                if (line.isEmpty()) continue
+                val i = line.indexOf('=')
+                if (i <= 0) continue
+                val v = line.substring(i + 1).trim().toFloatOrNull() ?: continue
+                cfg[line.substring(0, i).trim()] = v
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private var probe: TextView? = null
 
     private fun showProbe(msg: String) {
-        if ((cfg["probe"] ?: 0f) < 0.5f) { Log.i(TAG, "probe: " + msg); return }
         val tv = probe ?: TextView(this).apply {
             textSize = 10f
             setTextColor(0xFF3A3A40.toInt())
@@ -600,9 +458,7 @@ class MainActivity : Activity() {
             probe = this
         }
         tv.text = msg
-        tv.alpha = 1f
-        tv.animate().cancel()
-        tv.postDelayed({ tv.animate().alpha(0f).setDuration(400).start() }, 6000)
+        Log.i(TAG, "probe: " + msg)
     }
 
     /* ---------------- 网页 ---------------- */
@@ -616,7 +472,7 @@ class MainActivity : Activity() {
         st.loadWithOverviewMode = true
         st.useWideViewPort = true
         st.mediaPlaybackRequiresUserGesture = false
-        st.userAgentString = st.userAgentString + " RANShell/1.0"
+        st.userAgentString = st.userAgentString + " RANShell/2.0"
 
         web.setBackgroundColor(0x00FFFFFF)
         web.isVerticalScrollBarEnabled = false
@@ -626,21 +482,12 @@ class MainActivity : Activity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 injectShellCss()
-                root.postDelayed({ applyRects() }, 400)
-                root.postDelayed({ injectShellCss() }, 1200)
-                root.postDelayed({ logWebViewport() }, 1500)
-                root.postDelayed({ runDemoJs() }, 1800)
+                root.postDelayed({ injectShellCss() }, 900)
+                root.postDelayed({ runDemoJs() }, 1400)
             }
         }
     }
 
-    /**
-     * 只隐藏网页自身的顶栏/输入区，给聊天流补 padding。
-     * 全程运行时注入，网页源码零改动 —— 鸿蒙 / 桌面端不受影响。
-     */
-    private var lastPad = -1
-
-    /** 调试通道：执行设备目录里的 demo.js，用于造测试内容验证折射，零构建迭代 */
     private fun runDemoJs() {
         val f = File(cfgDir(), "demo.js")
         if (!f.exists() || f.length() < 8) return
@@ -649,32 +496,22 @@ class MainActivity : Activity() {
             web.evaluateJavascript(js, android.webkit.ValueCallback<String> { v ->
                 Log.i(TAG, "demo.js -> " + v)
             })
-            Log.i(TAG, "demo.js 已执行，长度=" + js.length)
         } catch (t: Throwable) {
             Log.e(TAG, "demo.js 失败", t)
         }
     }
 
-    private fun logWebViewport() {
-        web.evaluateJavascript(
-            "(function(){return document.documentElement.clientWidth+'|'+screen.width+'|'" +
-            "+window.devicePixelRatio})()",
-            android.webkit.ValueCallback<String> { v -> Log.i(TAG, "viewport=" + v) })
-    }
-
     private fun injectShellCss() {
         val d = resources.displayMetrics.density
-        val topPad = ((insetTop + dp(52) + dp(10)) / d).toInt()
+        val topPad = ((insetTop + dp(44) + dp(24)) / d).toInt()
         val botPad = ((insetBottom + dp(56) + dp(26)) / d).toInt()
         val key = topPad * 1000 + botPad
         if (key == lastPad) return
         lastPad = key
-        val css = """
-            #mhead,#inwrap,#inputzone,#sendbtn{display:none!important}
-            #chat{padding-bottom:${botPad}px!important}
-            #chatinner{padding-top:${topPad}px!important}
-            html,body{background:#F7F7F8!important}
-        """.trimIndent()
+        val css = "#mhead,#inwrap,#inputzone,#sendbtn{display:none!important}" +
+                "#chat{padding-bottom:${botPad}px!important}" +
+                "#chatinner{padding-top:${topPad}px!important}" +
+                "html,body{background:#F7F7F8!important}"
         val js = "(function(){var s=document.getElementById('ran-shell-css');" +
                 "if(!s){s=document.createElement('style');s.id='ran-shell-css';" +
                 "document.head.appendChild(s);}s.textContent=" + jsStr(css) + ";})()"
@@ -682,4 +519,5 @@ class MainActivity : Activity() {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density + 0.5f).toInt()
+    private fun dp(v: Float): Float = v * resources.displayMetrics.density
 }

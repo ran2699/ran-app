@@ -269,7 +269,7 @@ class MainActivity : Activity() {
         }
         h.elevation = dp(8f)
         val lp = FrameLayout.LayoutParams(dp(48), dp(48), Gravity.END or Gravity.CENTER_VERTICAL)
-        lp.rightMargin = dp(6f)
+        lp.rightMargin = dp(6)
         root.addView(h, lp)
         tunerHandle = h
 
@@ -355,8 +355,8 @@ class MainActivity : Activity() {
         col.addView(foot)
 
         val plp = FrameLayout.LayoutParams(dp(320), dp(470), Gravity.END or Gravity.TOP)
-        plp.rightMargin = dp(8f)
-        plp.topMargin = dp(70f)
+        plp.rightMargin = dp(8)
+        plp.topMargin = dp(70)
         root.addView(sv, plp)
         tunerPanel = sv
     }

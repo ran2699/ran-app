@@ -604,16 +604,18 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
                 targets.add(gBurger); targets.add(gPill); targets.add(gPlus)
                 targets.add(gDots); targets.add(island)
             }
-            if (alphaPx <= 0 || blurPx <= 0f) {
-                if (targets.isNotEmpty()) Log.d(TAG, "shadow off")
-                return
-            }
+            Log.i(TAG, "SR.onDraw a=$alphaPx blur=$blurPx dy=$dyPx n=${targets.size} " +
+                    "self=${width}x$height canvas=${canvas.width}x${canvas.height}")
+            if (alphaPx <= 0 || blurPx <= 0f) return
             for (v in targets) {
-                if (v.visibility != View.VISIBLE || v.width <= 0 || v.height <= 0) continue
                 val corner = if (v is LiquidGlassView) v.cornerRadius else 0f
+                Log.i(TAG, " target ${v.javaClass.simpleName} vis=${v.visibility} " +
+                        "rect=${v.left},${v.top},${v.right},${v.bottom} corner=$corner")
+                if (v.visibility != View.VISIBLE || v.width <= 0 || v.height <= 0) continue
                 val key = (v.width * 31 + v.height) * 31 + corner.toInt()
                 val bmp = cache[key] ?: render(v.width, v.height, corner)?.also { cache[key] = it }
-                if (bmp == null) continue
+                if (bmp == null) { Log.w(TAG, "  bitmap null"); continue }
+                Log.i(TAG, "  bmp=${bmp.width}x${bmp.height} draw at ${v.left - pad},${v.top - pad}")
                 canvas.drawBitmap(bmp, (v.left - pad).toFloat(), (v.top - pad).toFloat(), null)
             }
         }

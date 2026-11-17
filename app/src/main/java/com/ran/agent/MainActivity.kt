@@ -67,6 +67,8 @@ class MainActivity : Activity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 必须在 super.onCreate 之前，否则无效 —— 这是 "RAN Glass" 标题栏的成因
+        requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         super.onCreate(savedInstanceState)
 
         // 沉浸式：玻璃延伸到状态栏/导航栏下面（苹果的做法）
@@ -120,6 +122,8 @@ class MainActivity : Activity() {
                 imeBottom = 0
             }
             applyLayout()
+            Log.i(TAG, "insets top=" + insetTop + " bottom=" + insetBottom +
+                    " ime=" + imeBottom + " density=" + resources.displayMetrics.density)
             ins
         }
 
@@ -311,10 +315,14 @@ class MainActivity : Activity() {
             web.setRenderEffect(RenderEffect.createRuntimeShaderEffect(s, "content"))
             web.invalidate()
             if (rects.isNotEmpty()) {
-                val rc = rects[0]
-                Log.i(TAG, "rects n=" + rects.size + " r0=" + rc[0].toInt() + "," +
-                        rc[1].toInt() + "," + rc[2].toInt() + "," + rc[3].toInt() +
-                        " web=" + web.width + "x" + web.height)
+                val sb = StringBuilder("rects n=" + rects.size + " web=" +
+                        web.width + "x" + web.height + " |")
+                for (rc in rects) {
+                    sb.append(" [").append(rc[0].toInt()).append(',').append(rc[1].toInt())
+                        .append(' ').append(rc[2].toInt()).append(',').append(rc[3].toInt())
+                        .append(']')
+                }
+                Log.i(TAG, sb.toString())
             } else {
                 Log.w(TAG, "rects 为空（玻璃控件还没测量）")
             }
@@ -567,6 +575,7 @@ class MainActivity : Activity() {
                 injectShellCss()
                 root.postDelayed({ applyRects() }, 400)
                 root.postDelayed({ injectShellCss() }, 1200)
+                root.postDelayed({ logWebViewport() }, 1500)
             }
         }
     }
@@ -576,6 +585,13 @@ class MainActivity : Activity() {
      * 全程运行时注入，网页源码零改动 —— 鸿蒙 / 桌面端不受影响。
      */
     private var lastPad = -1
+
+    private fun logWebViewport() {
+        web.evaluateJavascript(
+            "(function(){return document.documentElement.clientWidth+'|'+screen.width+'|'" +
+            "+window.devicePixelRatio})()",
+            android.webkit.ValueCallback<String> { v -> Log.i(TAG, "viewport=" + v) })
+    }
 
     private fun injectShellCss() {
         val d = resources.displayMetrics.density

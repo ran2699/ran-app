@@ -59,6 +59,9 @@ class MainActivity : Activity() {
     private lateinit var gPlus: LiquidGlassView
     private lateinit var gDots: LiquidGlassView
 
+    /** 玻璃内部的奶白层：子 View 画在玻璃之上，用它做确定性的白纱浓度（0-1） */
+    private val milks = LinkedHashMap<LiquidGlassView, View>()
+
     private var islandExpanded = false
     private var insetTop = 0
     private var insetBottom = 0
@@ -73,7 +76,7 @@ class MainActivity : Activity() {
     private val CFG_DEFAULTS = linkedMapOf(
         "bevelWidth" to 16f, "refractionHeight" to 22f, "refractionFalloff" to 2.2f,
         "dispersionStrength" to 0.06f, "useShaderPipeline" to 1f,
-        "blurAmount" to 0.30f, "saturation" to 110f,
+        "blurAmount" to 0.30f, "saturation" to 110f, "milk" to 0.35f,
         "enableAdaptiveTint" to 1f, "enableSensorHighlight" to 1f,
         "enableEdgeHighlight" to 1f, "enableShadow" to 0f,
         "probe" to 0f
@@ -188,6 +191,10 @@ class MainActivity : Activity() {
         g.enableEdgeHighlight = true
         g.enableShadow = false                // 不描黑边
         g.clipChildren = false
+        val mv = View(this)
+        g.addView(mv, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        milks[g] = mv
         val c = content(g)
         g.addView(c, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -223,10 +230,25 @@ class MainActivity : Activity() {
             if (k == "glassTint") for (t in all) setIntProp(t, "glassTint", v)
         }
         if (islandExpanded) setProp(island, "cornerRadius", dp(26f))
+        applyMilk()
         if ((cfg["probe"] ?: 0f) > 0.5f) {
             showProbe("pipeline=" + (cfg["useShaderPipeline"] ?: 0f) +
-                    " blur=" + cfg["blurAmount"] + " sat=" + cfg["saturation"] +
-                    " tint=" + cfgInt["glassTint"])
+                    " milk=" + cfg["milk"] + " blur=" + cfg["blurAmount"] +
+                    " sat=" + cfg["saturation"] + " tint=" + cfgInt["glassTint"])
+        }
+    }
+
+    /** 奶白层：白色 + 可调 alpha + 跟随各自圆角。milk=0 完全关掉保持纯玻璃。 */
+    private fun applyMilk() {
+        val a = ((cfg["milk"] ?: 0f).coerceIn(0f, 1f) * 255).toInt()
+        for ((g, v) in milks) {
+            if (a <= 0) { v.visibility = View.GONE; continue }
+            v.visibility = View.VISIBLE
+            val gd = GradientDrawable()
+            gd.shape = GradientDrawable.RECTANGLE
+            gd.cornerRadius = g.cornerRadius
+            gd.setColor((a shl 24) or 0xFFFFFF)
+            v.background = gd
         }
     }
 
@@ -343,6 +365,11 @@ class MainActivity : Activity() {
         g.enableEdgeHighlight = true
         g.enableShadow = false
         g.clipChildren = false
+
+        val mv = View(this)
+        g.addView(mv, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        milks[g] = mv
 
         val col = LinearLayout(this)
         col.orientation = LinearLayout.VERTICAL

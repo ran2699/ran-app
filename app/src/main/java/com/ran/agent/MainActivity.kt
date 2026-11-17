@@ -50,6 +50,7 @@ class MainActivity : Activity() {
     private var islandExpanded = false
     private val glassTargets = ArrayList<Pair<View, Float>>()
     private var shader: RuntimeShader? = null
+    private var shaderSrc = ""
     private var cfg = GlassCfg()
 
     private var probe: TextView? = null
@@ -167,7 +168,8 @@ class MainActivity : Activity() {
             return
         }
         try {
-            val s = RuntimeShader(readShaderSrc())
+            shaderSrc = readShaderSrc()
+            val s = RuntimeShader(shaderSrc)
             shader = s
             val eff = RenderEffect.createRuntimeShaderEffect(s, "content")
             web.setRenderEffect(eff)
@@ -178,6 +180,14 @@ class MainActivity : Activity() {
             Log.e(TAG, "shader FAIL " + (t.message ?: ""), t)
             showProbe("shader 出错：" + t.javaClass.simpleName)
         }
+    }
+
+    /**
+     * 安全赋值：给 shader 里不存在的 uniform 赋值会触发 libhwui 的 native abort（进程直接死），
+     * 不是 Java 异常，catch 不住。所以先查源码里有没有声明。
+     */
+    private fun setF(s: RuntimeShader, name: String, v: Float) {
+        if (shaderSrc.contains("uniform float " + name)) s.setFloatUniform(name, v)
     }
 
     /** 把玻璃控件的位置换算成 WebView 本地坐标，逐个写入 shader 标量 uniform */
@@ -200,25 +210,25 @@ class MainActivity : Activity() {
             for (i in 0 until 4) {
                 if (i < rects.size) {
                     val rc = rects[i]
-                    s.setFloatUniform("r" + i + "x", rc[0])
-                    s.setFloatUniform("r" + i + "y", rc[1])
-                    s.setFloatUniform("r" + i + "z", rc[2])
-                    s.setFloatUniform("r" + i + "w", rc[3])
-                    s.setFloatUniform("r" + i + "r", rc[4])
+                    setF(s, "r" + i + "x", rc[0])
+                    setF(s, "r" + i + "y", rc[1])
+                    setF(s, "r" + i + "z", rc[2])
+                    setF(s, "r" + i + "w", rc[3])
+                    setF(s, "r" + i + "r", rc[4])
                 } else {
-                    s.setFloatUniform("r" + i + "x", 0f)
-                    s.setFloatUniform("r" + i + "y", 0f)
-                    s.setFloatUniform("r" + i + "z", 0f)
-                    s.setFloatUniform("r" + i + "w", 0f)
-                    s.setFloatUniform("r" + i + "r", 0f)
+                    setF(s, "r" + i + "x", 0f)
+                    setF(s, "r" + i + "y", 0f)
+                    setF(s, "r" + i + "z", 0f)
+                    setF(s, "r" + i + "w", 0f)
+                    setF(s, "r" + i + "r", 0f)
                 }
             }
-            s.setFloatUniform("bevel", cfg.bevel * d)
-            s.setFloatUniform("refraction", cfg.refraction * d)
-            s.setFloatUniform("dispersion", cfg.dispersion * d)
-            s.setFloatUniform("blurR", cfg.blurR * d)
-            s.setFloatUniform("tintA", cfg.tintA)
-            s.setFloatUniform("rimA", cfg.rimA)
+            setF(s, "bevel", cfg.bevel * d)
+            setF(s, "refraction", cfg.refraction * d)
+            setF(s, "dispersion", cfg.dispersion * d)
+            setF(s, "blurR", cfg.blurR * d)
+            setF(s, "tintA", cfg.tintA)
+            setF(s, "rimA", cfg.rimA)
             web.invalidate()
             if (rects.isNotEmpty()) {
                 val rc = rects[0]

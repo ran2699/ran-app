@@ -69,22 +69,16 @@ class MainActivity : Activity() {
 
     /* cfg key -> 库属性名。dp 单位换算在 applyGlassParams 里做；
        任何库属性只要在 CFG_DEFAULTS/PROP 里登记就能热调，不需要重新出包。 */
+    /** key = 库属性的真实名字（驼峰），值原样写入；dp 的键在写入前乘 density */
     private val CFG_DEFAULTS = linkedMapOf(
-        "bevel" to 16f, "refr" to 22f, "falloff" to 2.2f, "disp" to 0.06f,
-        "corner" to 22f, "islandCorner" to 28f,
-        "blur" to 0.30f, "sat" to 105f, "dispScale" to 70f, "aberration" to 2f,
-        "sensor" to 1f, "adaptive" to 1f, "probe" to 0f
+        "bevelWidth" to 16f, "refractionHeight" to 22f, "refractionFalloff" to 2.2f,
+        "dispersionStrength" to 0.06f, "useShaderPipeline" to 1f,
+        "blurAmount" to 0.30f, "saturation" to 110f,
+        "enableAdaptiveTint" to 1f, "enableSensorHighlight" to 1f,
+        "enableEdgeHighlight" to 1f, "enableShadow" to 0f,
+        "probe" to 0f
     )
-    private val PROP = mapOf(
-        "bevel" to "bevelWidth", "refr" to "refractionHeight",
-        "falloff" to "refractionFalloff", "disp" to "dispersionStrength",
-        "corner" to "cornerRadius", "islandCorner" to "cornerRadius",
-        "blur" to "blurAmount", "sat" to "saturation",
-        "dispScale" to "displacementScale", "aberration" to "aberrationIntensity",
-        "sensor" to "enableSensorHighlight", "adaptive" to "enableAdaptiveTint"
-    )
-    private val BOOL_KEYS = setOf("sensor", "adaptive")
-    private val DP_KEYS = setOf("bevel", "refr", "corner", "islandCorner")
+    private val DP_KEYS = setOf("bevelWidth", "refractionHeight", "corner", "islandCorner")
     private val cfg = LinkedHashMap<String, Float>()
     private val cfgInt = LinkedHashMap<String, Int>()
 
@@ -93,8 +87,9 @@ class MainActivity : Activity() {
             loadCfg()
             applyGlassParams()
             runDemoJs()
-            Log.i(TAG, "reload bevel=" + cfg["bevel"] + " refr=" + cfg["refr"] +
-                    " disp=" + cfg["disp"])
+            Log.i(TAG, "reload pipeline=" + cfg["useShaderPipeline"] +
+                    " bevel=" + cfg["bevelWidth"] + " refr=" + cfg["refractionHeight"] +
+                    " blur=" + cfg["blurAmount"] + " keys=" + cfg.size)
         }
     }
 
@@ -211,39 +206,40 @@ class MainActivity : Activity() {
         val all = listOf<Any>(gBurger, gPill, gPlus, gDots, island)
         for ((k, v) in cfg) {
             if (k == "probe") continue
-            val prop = PROP[k] ?: continue
             val raw = if (k in DP_KEYS) v * d else v
             val targets = when (k) {
                 "corner" -> top
                 "islandCorner" -> listOf<Any>(island)
+                "material" -> {                 // 0=CLEAR 1=REGULAR，枚举没法用数值反射
+                    for (t in all) (t as LiquidGlassView).material =
+                        if (v > 0.5f) GlassMaterial.REGULAR else GlassMaterial.CLEAR
+                    continue
+                }
                 else -> all
             }
-            for (t in targets) setProp(t, prop, k in BOOL_KEYS, raw)
+            for (t in targets) setProp(t, k, raw)
         }
         for ((k, v) in cfgInt) {
-            if (k == "tint") for (t in all) setIntProp(t, "glassTint", v)
+            if (k == "glassTint") for (t in all) setIntProp(t, "glassTint", v)
         }
-        if (islandExpanded) setProp(island, "cornerRadius", false, dp(26f))
+        if (islandExpanded) setProp(island, "cornerRadius", dp(26f))
         if ((cfg["probe"] ?: 0f) > 0.5f) {
-            showProbe("bevel=" + ((cfg["bevel"] ?: 0f) * d).toInt() +
-                    " blur=" + cfg["blur"] + " sat=" + cfg["sat"] + " tint=" + cfgInt["tint"])
+            showProbe("pipeline=" + (cfg["useShaderPipeline"] ?: 0f) +
+                    " blur=" + cfg["blurAmount"] + " sat=" + cfg["saturation"] +
+                    " tint=" + cfgInt["glassTint"])
         }
     }
 
     private fun setter(name: String) = "set" + name.replaceFirstChar { it.uppercase() }
 
-    private fun setProp(target: Any, prop: String, isBool: Boolean, f: Float) {
+    /** 通用写入：按 Boolean -> Float -> Int 依次尝试同名 setter（属性名即 cfg key） */
+    private fun setProp(target: Any, prop: String, f: Float) {
         val m = setter(prop)
-        try {
-            if (isBool) target.javaClass.getMethod(m, java.lang.Boolean.TYPE).invoke(target, f > 0.5f)
-            else target.javaClass.getMethod(m, java.lang.Float.TYPE).invoke(target, f)
-        } catch (_: Throwable) {
-            try {
-                target.javaClass.getMethod(m, java.lang.Integer.TYPE).invoke(target, f.toInt())
-            } catch (_: Throwable) {
-                Log.w(TAG, "no setter: " + m)
-            }
-        }
+        val cls = target.javaClass
+        runCatching { cls.getMethod(m, java.lang.Boolean.TYPE).invoke(target, f > 0.5f) }
+            .recoverCatching { cls.getMethod(m, java.lang.Float.TYPE).invoke(target, f) }
+            .recoverCatching { cls.getMethod(m, java.lang.Integer.TYPE).invoke(target, f.toInt()) }
+            .onFailure { Log.w(TAG, "no setter: " + m) }
     }
 
     private fun setIntProp(target: Any, prop: String, v: Int) {

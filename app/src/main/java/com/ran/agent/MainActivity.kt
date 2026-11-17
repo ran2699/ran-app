@@ -76,7 +76,8 @@ class MainActivity : Activity() {
     private val CFG_DEFAULTS = linkedMapOf(
         "bevelWidth" to 16f, "refractionHeight" to 22f, "refractionFalloff" to 2.2f,
         "dispersionStrength" to 0.06f, "useShaderPipeline" to 1f,
-        "blurAmount" to 0.30f, "saturation" to 110f, "milk" to 0.35f,
+        "blurAmount" to 0.30f, "saturation" to 110f, "milk" to 0.93f,
+        "corner" to 22f, "islandCorner" to 28f,
         "enableAdaptiveTint" to 1f, "enableSensorHighlight" to 1f,
         "enableEdgeHighlight" to 1f, "enableShadow" to 0f,
         "probe" to 0f
@@ -254,7 +255,7 @@ class MainActivity : Activity() {
     /* ================= 调参面板 ================= */
 
     private lateinit var tunerHandle: TextView
-    private lateinit var tunerPanel: android.widget.ScrollView
+    private lateinit var tunerPanel: View
     private var tunerOpen = false
 
     private fun buildTuner() {
@@ -296,23 +297,42 @@ class MainActivity : Activity() {
             }
         }
 
-        val sv = android.widget.ScrollView(this)
-        sv.background = GradientDrawable().apply {
+        // 外层：固定标题栏 + 可滚动内容（保证「×」永远可见，不会滚出视野）
+        val container = LinearLayout(this)
+        container.orientation = LinearLayout.VERTICAL
+        container.background = GradientDrawable().apply {
             cornerRadius = dp(18f)
             setColor(0xF7FFFFFF.toInt())
         }
-        sv.elevation = dp(16f)
-        sv.visibility = View.GONE
-        val col = LinearLayout(this)
-        col.orientation = LinearLayout.VERTICAL
-        col.setPadding(dp(14), dp(10), dp(14), dp(12))
-        sv.addView(col)
+        container.elevation = dp(16f)
+        container.visibility = View.GONE
+        container.setPadding(dp(14), dp(8), dp(14), dp(4))
 
+        val header = LinearLayout(this)
+        header.orientation = LinearLayout.HORIZONTAL
+        header.gravity = Gravity.CENTER_VERTICAL
         val title = TextView(this)
         title.text = "\u73bb\u7483\u53c2\u6570"
         title.textSize = 15f
         title.setTextColor(0xFF1A1A1C.toInt())
-        col.addView(title)
+        header.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val close = TextView(this)
+        close.text = "\u00d7"
+        close.textSize = 20f
+        close.gravity = Gravity.CENTER
+        close.setTextColor(0xFF55555C.toInt())
+        close.setPadding(dp(10), 0, dp(4), dp(4))
+        close.setOnClickListener { toggleTuner() }
+        header.addView(close)
+        container.addView(header)
+
+        val sv = android.widget.ScrollView(this)
+        val col = LinearLayout(this)
+        col.orientation = LinearLayout.VERTICAL
+        col.setPadding(0, dp(2), 0, dp(8))
+        sv.addView(col)
+        container.addView(sv, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         addSlider(col, "\u767d\u5ea6 milk", "milk", 0f, 1f)
         addSlider(col, "\u6a21\u7cca blur", "blurAmount", 0f, 2.5f)
@@ -349,16 +369,20 @@ class MainActivity : Activity() {
 
         val foot = LinearLayout(this)
         foot.orientation = LinearLayout.HORIZONTAL
+        foot.setPadding(0, dp(10), 0, 0)
         foot.addView(chip("\u4fdd\u5b58") { saveCfg(); toast("\u5df2\u4fdd\u5b58") })
         foot.addView(chip("\u590d\u4f4d") { loadCfg(); applyGlassParams(); saveCfg() })
-        foot.addView(chip("\u6536\u8d77") { toggleTuner() })
+        foot.addView(chip("\u6536\u8d77") { toggleTuner() }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         col.addView(foot)
 
-        val plp = FrameLayout.LayoutParams(dp(320), dp(470), Gravity.END or Gravity.TOP)
+        val screenH = resources.displayMetrics.heightPixels
+        val panelH = minOf(dp(600), screenH - dp(70) - dp(120))
+        val plp = FrameLayout.LayoutParams(dp(330), panelH, Gravity.END or Gravity.TOP)
         plp.rightMargin = dp(8)
         plp.topMargin = dp(70)
-        root.addView(sv, plp)
-        tunerPanel = sv
+        root.addView(container, plp)
+        tunerPanel = container
     }
 
     private fun toggleTuner() {
@@ -400,7 +424,7 @@ class MainActivity : Activity() {
             override fun onStopTrackingTouch(b: android.widget.SeekBar?) { saveCfg() }
         })
         row.addView(sb, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(34)))
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(30)))
         col.addView(row)
     }
 

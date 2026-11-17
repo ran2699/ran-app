@@ -94,13 +94,14 @@ class MainActivity : Activity() {
         "shadowAlpha" to 34f, "shadowBlur" to 14f, "shadowDy" to 5f,
         "enableAdaptiveTint" to 1f, "enableSensorHighlight" to 1f,
         "enableEdgeHighlight" to 1f, "enableShadow" to 0f,
+        "sideScrim" to 17f, "sideMilkBoost" to 0.08f,
         "probe" to 0f
     )
     private val DP_KEYS = setOf("bevelWidth", "refractionHeight", "corner", "islandCorner")
     /** 这些键由外壳自己消费，不反射到玻璃视图上 */
     private val LOCAL_KEYS = setOf(
         "probe", "milk", "edgeBlur", "edgeTopH", "edgeBotH",
-        "shadowAlpha", "shadowBlur", "shadowDy")
+        "shadowAlpha", "shadowBlur", "shadowDy", "sideScrim", "sideMilkBoost")
     private val cfg = LinkedHashMap<String, Float>()
     private val cfgInt = LinkedHashMap<String, Int>()
 
@@ -821,7 +822,8 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         val layer = FrameLayout(this)
 
         val scrim = View(this)
-        scrim.setBackgroundColor(0x1F000000)
+        val sa = ((cfg["sideScrim"] ?: 17f).coerceIn(0f, 60f) / 100f * 255).toInt()
+        scrim.setBackgroundColor((sa shl 24))
         scrim.isClickable = true
         scrim.setOnClickListener { closeSidebar() }
         layer.addView(scrim, FrameLayout.LayoutParams(
@@ -836,7 +838,9 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         glass.enableShadow = false
         glass.clipChildren = false
 
-        val milkA = ((cfg["milk"] ?: 0.84f).coerceIn(0f, 1f) * 255).toInt()
+        // 侧栏比按钮再白一档：大面积面板需要更实的底，否则会显灰
+        val boost = cfg["sideMilkBoost"] ?: 0.08f
+        val milkA = ((cfg["milk"] ?: 0.84f) + boost).coerceIn(0f, 1f).let { (it * 255).toInt() }
         val mv = View(this)
         mv.background = GradientDrawable().apply {
             cornerRadius = dp(28f)
@@ -967,6 +971,19 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         lp.topMargin = insetTop + dp(6)
         lp.bottomMargin = insetBottom + dp(6)
         layer.addView(glass, lp)
+
+        // 右缘投影：让侧栏明确浮在内容之上，而不是与背景贴在一起
+        val sh = View(this)
+        sh.background = GradientDrawable(
+            GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(0x2A000000, 0x00000000)
+        )
+        val shp = FrameLayout.LayoutParams(dp(22), ViewGroup.LayoutParams.MATCH_PARENT)
+        shp.gravity = Gravity.START
+        shp.leftMargin = dp(8) + dp(316)
+        shp.topMargin = insetTop + dp(6)
+        shp.bottomMargin = insetBottom + dp(6)
+        layer.addView(sh, shp)
 
         root.addView(layer, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))

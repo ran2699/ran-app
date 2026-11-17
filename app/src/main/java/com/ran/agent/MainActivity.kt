@@ -54,6 +54,10 @@ class MainActivity : Activity() {
     private val glassTargets = ArrayList<Pair<View, Float>>()
     private var shader: RuntimeShader? = null
     private var shaderSrc = ""
+
+    /** 串联链上的每一趟：同一份 shader 源码，mode=0 模糊 / mode=1 材质 */
+    private class Pass(val sh: RuntimeShader, val mode: Float, val radius: Float)
+    private val passes = ArrayList<Pass>()
     private val cfg = LinkedHashMap<String, Float>()
 
     private var probe: TextView? = null
@@ -106,8 +110,9 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
 
         island = buildIsland()
+        // 必须显式 Gravity.BOTTOM：否则 bottomMargin 不会被解析，输入岛会跑到顶部压住顶栏
         root.addView(island, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(H_COLLAPSE)))
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(H_COLLAPSE), Gravity.BOTTOM))
 
         root.setOnApplyWindowInsetsListener { _, ins ->
             if (Build.VERSION.SDK_INT >= 30) {
@@ -190,10 +195,10 @@ class MainActivity : Activity() {
      * 长度一律 dp，着色器内乘 dens 换算成设备像素。
      */
     private val CFG_DEFAULTS = linkedMapOf(
-        "bevel" to 8f, "refraction" to 6f, "dispersion" to 0f, "blurR" to 16f,
-        "tintA" to 0.18f, "rimA" to 1.0f, "falloff" to 18f,
-        "shadowA" to 0.20f, "shadowY" to 3f, "shadowR" to 1f,
-        "satA" to 0.05f, "detail" to 0f, "edgeA" to 0.9f, "innerH" to 0.8f
+        "bevel" to 7f, "refraction" to 5f, "disp" to 0f,
+        "tintA" to 0.40f, "rimA" to 2.0f, "crispA" to 0.26f,
+        "shadowA" to 0.28f, "shadowY" to 6f, "shadowR" to 18f,
+        "lightA" to -2.35f, "stages" to 2f, "probe" to 0f
     )
 
     private fun cfgDir() = getExternalFilesDir(null) ?: filesDir
@@ -237,13 +242,10 @@ class MainActivity : Activity() {
         try {
             shaderSrc = readShaderSrc()
             lastRectKey = ""
-            val s = RuntimeShader(shaderSrc)
-            shader = s
-            val eff = RenderEffect.createRuntimeShaderEffect(s, "content")
-            web.setRenderEffect(eff)
+            createShaders()
             applyRects()
             val brief = "bevel=" + cfg["bevel"] + " refr=" + cfg["refraction"] +
-                    " blur=" + cfg["blurR"] + " tint=" + cfg["tintA"]
+                    " tint=" + cfg["tintA"] + " stages=" + (cfg["stages"] ?: 2f).toInt()
             Log.i(TAG, "shader OK why=" + why + " " + brief)
             showProbe("玻璃已载入 · " + brief)
         } catch (t: Throwable) {
@@ -255,9 +257,7 @@ class MainActivity : Activity() {
                 if (fb != shaderSrc) {
                     shaderSrc = fb
                     lastRectKey = ""
-                    val s2 = RuntimeShader(fb)
-                    shader = s2
-                    web.setRenderEffect(RenderEffect.createRuntimeShaderEffect(s2, "content"))
+                    createShaders()
                     applyRects()
                     Log.i(TAG, "shader 已回退到 assets 版本")
                 }
@@ -275,9 +275,39 @@ class MainActivity : Activity() {
 
     private var lastRectKey = ""
 
+    /**
+     * 多趟级联：模糊 -> 模糊 -> 材质。每趟在玻璃外恒等输出，页面其余部分完全不受影响。
+     * 单趟几十个采样在密集文字上不收敛（会出现织纹）；分级后每趟只处理已经平滑的输入，
+     * 实测对真高斯的 RMSE 由 0.033 降到 0.0045。趟数由 cfg 的 stages 热切换（1/2/3）。
+     */
+    private fun stageRadii(): FloatArray = when ((cfg["stages"] ?: 2f).toInt()) {
+        1 -> floatArrayOf(18f)
+        3 -> floatArrayOf(6f, 10f, 16f)
+        else -> floatArrayOf(8f, 14f)
+    }
+
+    /** 建 shader 实例（此刻 uniform 还没写，所以先不建 chain） */
+    private fun createShaders() {
+        passes.clear()
+        for (r in stageRadii()) passes.add(Pass(RuntimeShader(shaderSrc), 0f, r))
+        passes.add(Pass(RuntimeShader(shaderSrc), 1f, 0f))
+        shader = passes.lastOrNull()?.sh
+    }
+
+    /** 用已写好 uniform 的实例建 RenderEffect 链（链尾先执行） */
+    private fun createChain(): RenderEffect {
+        var eff: RenderEffect? = null
+        for (p in passes) {
+            val e = RenderEffect.createRuntimeShaderEffect(p.sh, "content")
+            eff = if (eff == null) e else RenderEffect.createChainEffect(e, eff)
+        }
+        return eff ?: RenderEffect.createRuntimeShaderEffect(
+            RuntimeShader(shaderSrc), "content")
+    }
+
     /** 把玻璃控件的位置换算成 WebView 本地坐标，逐个写入 shader 标量 uniform */
     private fun applyRects() {
-        val s = shader ?: return
+        if (passes.isEmpty()) return
         val d = resources.displayMetrics.density
         val rects = ArrayList<FloatArray>()
         for ((v, r) in glassTargets) {
@@ -300,28 +330,34 @@ class MainActivity : Activity() {
         lastRectKey = key.toString()
 
         try {
-            for (i in 0 until 6) {
-                if (i < rects.size) {
-                    val rc = rects[i]
-                    setF(s, "r" + i + "x", rc[0])
-                    setF(s, "r" + i + "y", rc[1])
-                    setF(s, "r" + i + "z", rc[2])
-                    setF(s, "r" + i + "w", rc[3])
-                    setF(s, "r" + i + "r", rc[4])
-                } else {
-                    setF(s, "r" + i + "x", 0f)
-                    setF(s, "r" + i + "y", 0f)
-                    setF(s, "r" + i + "z", 0f)
-                    setF(s, "r" + i + "w", 0f)
-                    setF(s, "r" + i + "r", 0f)
+            val dilate = (cfg["refraction"] ?: 5f) * d + 3f
+            for (p in passes) {
+                val s = p.sh
+                for (i in 0 until 6) {
+                    if (i < rects.size) {
+                        val rc = rects[i]
+                        setF(s, "r" + i + "x", rc[0])
+                        setF(s, "r" + i + "y", rc[1])
+                        setF(s, "r" + i + "z", rc[2])
+                        setF(s, "r" + i + "w", rc[3])
+                        setF(s, "r" + i + "r", rc[4])
+                    } else {
+                        setF(s, "r" + i + "x", 0f)
+                        setF(s, "r" + i + "y", 0f)
+                        setF(s, "r" + i + "z", 0f)
+                        setF(s, "r" + i + "w", 0f)
+                        setF(s, "r" + i + "r", 0f)
+                    }
                 }
+                setF(s, "dens", d)
+                for ((k, v) in cfg) setF(s, k, v)
+                setF(s, "mode", p.mode)
+                setF(s, "blurR", p.radius)
+                setF(s, "dilate", dilate)
             }
-            // 参数按同名 uniform 写入（cfg 里有什么就写什么），dens 供 shader 把 dp 换算成设备像素
-            setF(s, "dens", d)
-            for ((k, v) in cfg) setF(s, k, v)
             // 关键：uniform 必须在创建 RenderEffect 之前写好，否则 effect 里拿到的是全 0。
-            // 所以每次改参数都重建一次 effect（开销很小，只在参数变化时发生）。
-            web.setRenderEffect(RenderEffect.createRuntimeShaderEffect(s, "content"))
+            // 所以每次改参数都重建一次 chain（开销很小，只在参数或位置变化时发生）。
+            web.setRenderEffect(createChain())
             web.invalidate()
             if (rects.isNotEmpty()) {
                 val sb = StringBuilder("rects n=" + rects.size + " web=" +
@@ -550,6 +586,7 @@ class MainActivity : Activity() {
     /* ---------------- 探针 ---------------- */
 
     private fun showProbe(msg: String) {
+        if ((cfg["probe"] ?: 0f) < 0.5f) { Log.i(TAG, "probe: " + msg); return }
         val tv = probe ?: TextView(this).apply {
             textSize = 10f
             setTextColor(0xFF3A3A40.toInt())

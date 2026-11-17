@@ -567,6 +567,37 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             }
         })
 
+        // ==== 临时诊断：条纹背景测试。用于判定"库不工作"还是"WebView 采不到" ====
+        val stripeView = LinearLayout(this)
+        stripeView.orientation = LinearLayout.HORIZONTAL
+        val stripeColors = intArrayOf(
+            0xFFFF0000.toInt(), 0xFF00C000.toInt(), 0xFF0000FF.toInt(), 0xFFFFC000.toInt())
+        for (c in stripeColors) {
+            val sv = View(this)
+            sv.setBackgroundColor(c)
+            stripeView.addView(sv, LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        }
+        stripeView.visibility = View.GONE
+        root.addView(stripeView, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { gravity = Gravity.TOP })
+
+        root.postDelayed({
+            stripeView.visibility = View.VISIBLE
+            // 只对顶栏那三块玻璃生效（glasses[0..2]）
+            var n = 0
+            for (g in glasses) {
+                if (n >= 3) break
+                callM(g, "setBackdropSource",
+                    arrayOf<Class<*>>(View::class.java), arrayOf<Any?>(stripeView))
+                g.invalidate()
+                n++
+            }
+            glassInfo.setLength(0)
+            glassInfo.append("STRIPE-TEST n=").append(n)
+            addProbe()
+        }, 6000)
+
         // 布局完成后立刻挂一次，保证原生外壳自身就有效果
         root.post {
             root.postDelayed({ applyBackdrop("layout") }, 260)

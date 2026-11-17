@@ -55,6 +55,8 @@ class MainActivity : AppCompatActivity() {
     private var insTop = 0
     private var insBottom = 0
     private val glassInfo = StringBuilder()
+    private val glasses = ArrayList<LiquidGlassView>()
+    private var backdropApplied = false
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         fileCallback?.onReceiveValue(if (uri != null) arrayOf(uri) else null)
@@ -138,11 +140,13 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
         val g = LiquidGlassView(this)
         val ok = ArrayList<String>()
         try {
-            if (this::web.isInitialized) {
-                callM(g, "setBackdropSource",
-                    arrayOf<Class<*>>(View::class.java), arrayOf<Any?>(web))
-            }
+            // 采样源不在这里设：此刻 WebView 还是 0x0，RenderNode 会记录为空 —— 那正是灰块的来源。
+            // 统一在布局完成后由 applyBackdrop() 设置。
+            glasses.add(g)
             setB(g, "setEnableDynamicBackground", true)
+            // 必须走硬件 RenderNode + RenderEffect，软件画布抓不到 WebView 内容
+            setB(g, "setUseHardwareBlurWhenPossible", true)
+            setB(g, "setEnableOptimizedCapture", true)
             setB(g, "setEnableBackdropBlur", true)
             setB(g, "setOverLight", true)
             setB(g, "setEnableEdgeHighlight", true)
@@ -175,6 +179,26 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             glassInfo.append("cfg-err:").append(t.javaClass.simpleName)
         }
         return g
+    }
+
+    /** 布局完成后才把 WebView 挂成采样源；期间重复调用是安全的 */
+    private fun applyBackdrop(why: String) {
+        if (!this::web.isInitialized) return
+        if (web.width < 8 || web.height < 8) return
+        var ok = 0
+        for (g in glasses) {
+            if (callM(g, "setBackdropSource",
+                    arrayOf<Class<*>>(View::class.java), arrayOf<Any?>(web))) {
+                ok++
+            }
+            g.invalidate()
+        }
+        backdropApplied = ok > 0
+        glassInfo.setLength(0)
+        glassInfo.append("bd=").append(ok).append('/').append(glasses.size)
+            .append(" web=").append(web.width).append('x').append(web.height)
+            .append(" ").append(why)
+        addProbe()
     }
 
     /* ---------------- 顶部玻璃栏：三块独立玻璃，彼此留缝 ---------------- */
@@ -371,27 +395,44 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
 
     /* ---------------- 探针：把关键事实显示出来，便于定位 ---------------- */
 
+    private var probeView: TextView? = null
+    private var probeHideRun: Runnable? = null
+
+    /** 探针：同一块复用，只更新文字，避免层层叠加 */
     private fun addProbe() {
         val agsl = try {
             Class.forName("android.graphics.RuntimeShader"); "yes"
         } catch (t: Throwable) { "no" }
-        val tv = TextView(this).apply {
-            textSize = 10f
-            setTextColor(0xFF3A3A40.toInt())
-            setBackgroundColor(0x55FFFFFF)
-            setPadding(dp(10), dp(6), dp(10), dp(6))
-            text = "API " + android.os.Build.VERSION.SDK_INT + " · AGSL:" + agsl +
-                    " · " + glassInfo.toString()
+        val text = "API " + android.os.Build.VERSION.SDK_INT + " · AGSL:" + agsl +
+                " · " + glassInfo.toString()
+
+        val tv = probeView
+        if (tv != null && tv.parent != null) {
+            tv.text = text
+            tv.animate().cancel()
+            tv.alpha = 1f
+        } else {
+            val nv = TextView(this).apply {
+                textSize = 10f
+                setTextColor(0xFF3A3A40.toInt())
+                setBackgroundColor(0x55FFFFFF)
+                setPadding(dp(10), dp(6), dp(10), dp(6))
+                text = text
+            }
+            root.addView(nv, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+                topMargin = dp(84)
+            })
+            probeView = nv
         }
-        root.addView(tv, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
-            bottomMargin = dp(96)
-        })
-        tv.animate().alpha(1f).setDuration(200).withEndAction {
-            tv.postDelayed({ tv.animate().alpha(0f).setDuration(400).start() }, 9000)
-        }.start()
+        probeView?.animate()?.cancel()
+        probeView?.alpha = 1f
+        probeHideRun?.let { probeView?.removeCallbacks(it) }
+        val hide = Runnable { probeView?.animate()?.alpha(0f)?.setDuration(450)?.start() }
+        probeHideRun = hide
+        probeView?.postDelayed(hide, 9000)
     }
 
     /* ---------------- 生命周期 ---------------- */
@@ -523,6 +564,14 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
                 if (web.canGoBack()) web.goBack() else finish()
             }
         })
+
+        // 布局完成后立刻挂一次，保证原生外壳自身就有效果
+        root.post {
+            root.postDelayed({ applyBackdrop("layout") }, 260)
+        }
+        root.viewTreeObserver.addOnGlobalLayoutListener {
+            if (!backdropApplied) applyBackdrop("global")
+        }
 
         web.loadUrl("https://ran.ran-ai.pro")
     }

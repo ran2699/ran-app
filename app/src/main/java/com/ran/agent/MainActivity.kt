@@ -75,16 +75,22 @@ class MainActivity : Activity() {
         window.navigationBarColor = Color.TRANSPARENT
         if (Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false)
-            window.insetsController?.setSystemBarsAppearance(
-                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                        WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
-                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                        WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
         }
 
         root = FrameLayout(this)
         root.setBackgroundColor(0xFFF7F7F8.toInt())
         setContentView(root)
+
+        // insetsController 依赖 DecorView，必须在 setContentView 之后取，否则 NPE
+        if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                window.insetsController?.setSystemBarsAppearance(
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                            WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                            WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
+            } catch (_: Throwable) {}
+        }
 
         web = WebView(this)
         root.addView(web, FrameLayout.LayoutParams(

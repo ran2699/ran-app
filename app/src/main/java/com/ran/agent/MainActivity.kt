@@ -113,27 +113,64 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
      *   setOverLight(true)        声明玻璃压在浅色内容上（苹果的 regular material 语义）
      *   setBlurAmount / setCornerRadius / setGlassTint / setMaterial(REGULAR)
      */
+    /** 反射调用：库是 Kotlin 写的，属性 setter 在 Kotlin 源码里不能按 setXxx() 调用 */
+    private fun callM(obj: Any, name: String, types: Array<Class<*>>, args: Array<Any?>): Boolean {
+        return try {
+            obj.javaClass.getMethod(name, *types).invoke(obj, *args)
+            true
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    private fun setF(obj: Any, name: String, v: Float) =
+        callM(obj, name, arrayOf<Class<*>>(Float::class.javaPrimitiveType!!), arrayOf<Any?>(v))
+
+    private fun setB(obj: Any, name: String, v: Boolean) =
+        callM(obj, name, arrayOf<Class<*>>(Boolean::class.javaPrimitiveType!!), arrayOf<Any?>(v))
+
+    /**
+     * 按库的真实 API 配置玻璃（v2.0.11 AAR 已反解析，方法名逐一核实）：
+     *   setBackdropSource(View)  显式指定采样对象 —— 不指定就取不到 WebView，会渲染成黑块
+     *   setOverLight(true)       声明玻璃压在浅色内容上（苹果 regular material 语义）
+     */
     private fun makeGlass(radiusDp: Int = 26): LiquidGlassView {
         val g = LiquidGlassView(this)
+        val ok = ArrayList<String>()
         try {
-            if (this::web.isInitialized) g.setBackdropSource(web)
-            g.setEnableDynamicBackground(true)
-            g.setEnableBackdropBlur(true)
-            g.setMaterial(com.example.liquidglass.GlassMaterial.REGULAR)
-            g.setOverLight(true)
-            g.setBlurAmount(dp(16).toFloat())
-            g.setCornerRadius(dp(radiusDp).toFloat())
-            g.setGlassTint(0x2EFFFFFF, 0.9f)
-            g.setEnableEdgeHighlight(true)
-            g.setEnablePressEffect(true)
-            g.setEnableSensorHighlight(true)
-            g.setDispersionStrength(0.10f)
-            g.setBevelWidth(dp(radiusDp).toFloat() * 0.5f)
-            g.setRefractionHeight(dp(6).toFloat())
+            if (this::web.isInitialized) {
+                callM(g, "setBackdropSource",
+                    arrayOf<Class<*>>(View::class.java), arrayOf<Any?>(web))
+            }
+            setB(g, "setEnableDynamicBackground", true)
+            setB(g, "setEnableBackdropBlur", true)
+            setB(g, "setOverLight", true)
+            setB(g, "setEnableEdgeHighlight", true)
+            setB(g, "setEnablePressEffect", true)
+            setB(g, "setEnableSensorHighlight", true)
+            setF(g, "setBlurAmount", dp(16).toFloat())
+            setF(g, "setCornerRadius", dp(radiusDp).toFloat())
+            setF(g, "setDispersionStrength", 0.10f)
+            setF(g, "setBevelWidth", dp(radiusDp).toFloat() * 0.5f)
+            setF(g, "setRefractionHeight", dp(6).toFloat())
+            // 材质：REGULAR = 苹果的常规玻璃（CLEAR 更透）
+            try {
+                val mat = Class.forName("com.example.liquidglass.GlassMaterial")
+                val reg = mat.getField("REGULAR").get(null)
+                callM(g, "setMaterial", arrayOf<Class<*>>(mat), arrayOf<Any?>(reg))
+                ok.add("mat")
+            } catch (_: Throwable) {}
+            // 着色（带强度重载）
+            callM(g, "setGlassTint",
+                arrayOf<Class<*>>(Int::class.javaPrimitiveType!!, Float::class.javaPrimitiveType!!),
+                arrayOf<Any?>(0x2EFFFFFF, 0.9f))
             glassInfo.setLength(0)
-            glassInfo.append("backdrop=").append(g.backdropSource != null)
-                .append(" r=").append(g.cornerRadius.toInt())
-                .append(" blur=").append(g.blurAmount.toInt())
+            glassInfo.append("bd=").append((g as Any).let {
+                try {
+                    it.javaClass.getMethod("getBackdropSource").invoke(it) != null
+                } catch (e: Throwable) { false }
+            }).append(" r=").append(radiusDp)
+            if (ok.contains("mat")) glassInfo.append(" REGULAR")
         } catch (t: Throwable) {
             glassInfo.append("cfg-err:").append(t.javaClass.simpleName)
         }
@@ -294,7 +331,7 @@ a{display:inline-block;padding:12px 34px;background:#1a1a1c;color:#fff;border-ra
             }.start()
         }
         input.maxLines = if (on) 4 else 1
-        try { island.setCornerRadius(dp(if (on) 26 else 28).toFloat()) } catch (_: Throwable) {}
+        setF(island, "setCornerRadius", dp(if (on) 26 else 28).toFloat())
         syncShellCss()
     }
 

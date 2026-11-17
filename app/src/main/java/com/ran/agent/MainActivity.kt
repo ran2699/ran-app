@@ -750,6 +750,7 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
 
         val lp = FrameLayout.LayoutParams(dp(236), ViewGroup.LayoutParams.WRAP_CONTENT)
         layer.addView(glass, lp)
+        layer.elevation = dp(90f)
         root.addView(layer, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         menuLayer = layer
@@ -985,6 +986,9 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         shp.bottomMargin = insetBottom + dp(6)
         layer.addView(sh, shp)
 
+        // 高层级：顶栏玻璃按钮与调参悬浮球（elevation=8dp）都会按 elevation 排序绘制，
+        // 不抬高的话它们会浮在遮罩之上 —— 侧栏打开时按钮不"退后"，层次就乱了。
+        layer.elevation = dp(100f)
         root.addView(layer, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         sideLayer = layer

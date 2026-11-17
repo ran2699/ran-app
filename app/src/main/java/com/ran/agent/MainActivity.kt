@@ -695,17 +695,17 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         val col = LinearLayout(this)
         col.orientation = LinearLayout.VERTICAL
         col.setPadding(dp(7), dp(7), dp(7), dp(7))
-        for (it in items) {
-            if (it.isGroup) {
+        for (item in items) {
+            if (item.isGroup) {
                 val h = TextView(this)
-                h.text = it.title
+                h.text = item.title
                 h.textSize = 11.5f
                 h.setTextColor(0xFF8A8A90.toInt())
                 h.setPadding(dp(11), dp(9), dp(11), dp(3))
                 col.addView(h)
             } else {
                 val tv = TextView(this)
-                tv.text = it.title
+                tv.text = item.title
                 tv.textSize = 15f
                 tv.setTextColor(0xFF1A1A1C.toInt())
                 tv.setPadding(dp(11), dp(11), dp(11), dp(11))
@@ -714,9 +714,10 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
                 bg.cornerRadius = dp(12f)
                 bg.setColor(0x00FFFFFF)
                 tv.background = bg
+                val act = item.onClick
                 tv.setOnClickListener {
                     dismissMenu()
-                    it.onClick?.invoke()
+                    act?.invoke()
                 }
                 col.addView(tv)
             }

@@ -676,7 +676,6 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
     private fun dismissMenu() {
         menuLayer?.let { root.removeView(it) }
         menuLayer = null
-        menuGlass?.let { milks.remove(it) }
         menuGlass = null
     }
 
@@ -731,12 +730,21 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         glass.enableEdgeHighlight = true
         glass.enableShadow = false
         glass.clipChildren = false
+        // 白罩显式设置：不依赖 applyMilk 的时机，避免菜单玻璃偏灰
+        val milkA = ((cfg["milk"] ?: 0.84f).coerceIn(0f, 1f) * 255).toInt()
         val mv = View(this)
+        mv.background = GradientDrawable().apply {
+            cornerRadius = dp(20f)
+            setColor((milkA shl 24) or 0xFFFFFF)
+        }
         glass.addView(mv, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        milks[glass] = mv
         menuGlass = glass
-        glass.addView(col, FrameLayout.LayoutParams(
+        // 滚动容器：模型多时不至于超出屏幕
+        val sv = android.widget.ScrollView(this)
+        sv.isVerticalScrollBarEnabled = false
+        sv.addView(col)
+        glass.addView(sv, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val lp = FrameLayout.LayoutParams(dp(236), ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -749,7 +757,12 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         glass.post {
             val p = glass.layoutParams as FrameLayout.LayoutParams
             p.width = dp(236)
-            p.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            // 手动测量内容：FrameLayout 里 MATCH_PARENT 的子视图会把 wrap_content 撑满整屏
+            col.measure(
+                View.MeasureSpec.makeMeasureSpec(dp(236), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            val maxH = (resources.displayMetrics.heightPixels * 0.55f).toInt()
+            p.height = minOf(col.measuredHeight, maxH).coerceAtLeast(dp(48))
             if (above) {
                 p.gravity = Gravity.BOTTOM or Gravity.END
                 p.bottomMargin = maxOf(dp(10), root.height - anchor.top + dp(8))

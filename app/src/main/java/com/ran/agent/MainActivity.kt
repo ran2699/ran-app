@@ -67,13 +67,26 @@ class MainActivity : Activity() {
 
     private val TAG = "RanGlass"
 
-    /* cfg 里出现什么就写什么；单位 dp 的在写入前乘 density */
+    /* cfg key -> 库属性名。dp 单位换算在 applyGlassParams 里做；
+       任何库属性只要在 CFG_DEFAULTS/PROP 里登记就能热调，不需要重新出包。 */
     private val CFG_DEFAULTS = linkedMapOf(
-        "bevel" to 16f, "refr" to 22f, "falloff" to 2.2f, "disp" to 0.07f,
-        "corner" to 22f, "islandCorner" to 28f, "sensor" to 1f, "adaptive" to 1f,
-        "probe" to 0f
+        "bevel" to 16f, "refr" to 22f, "falloff" to 2.2f, "disp" to 0.06f,
+        "corner" to 22f, "islandCorner" to 28f,
+        "blur" to 0.30f, "sat" to 105f, "dispScale" to 70f, "aberration" to 2f,
+        "sensor" to 1f, "adaptive" to 1f, "probe" to 0f
     )
+    private val PROP = mapOf(
+        "bevel" to "bevelWidth", "refr" to "refractionHeight",
+        "falloff" to "refractionFalloff", "disp" to "dispersionStrength",
+        "corner" to "cornerRadius", "islandCorner" to "cornerRadius",
+        "blur" to "blurAmount", "sat" to "saturation",
+        "dispScale" to "displacementScale", "aberration" to "aberrationIntensity",
+        "sensor" to "enableSensorHighlight", "adaptive" to "enableAdaptiveTint"
+    )
+    private val BOOL_KEYS = setOf("sensor", "adaptive")
+    private val DP_KEYS = setOf("bevel", "refr", "corner", "islandCorner")
     private val cfg = LinkedHashMap<String, Float>()
+    private val cfgInt = LinkedHashMap<String, Int>()
 
     private val reloader = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
@@ -187,34 +200,58 @@ class MainActivity : Activity() {
         return g
     }
 
-    /** 把 cfg 应用到所有玻璃；单位是 dp 的在这里换算成 px（库的参数都是 px） */
+    /**
+     * 按 cfg 逐项写进库属性（反射调用 setter）。
+     * 这样以后无论想调哪个属性，只改设备上的 glass.cfg + 广播，不用重新出包。
+     * 单位：bevel/refr/corner/islandCorner 是 dp，这里乘 density 换成 px；其余无量纲。
+     */
     private fun applyGlassParams() {
         val d = resources.displayMetrics.density
-        val bevel = (cfg["bevel"] ?: 16f) * d
-        val refr = (cfg["refr"] ?: 22f) * d
-        val falloff = cfg["falloff"] ?: 2.2f
-        val disp = cfg["disp"] ?: 0.07f
-        val sensor = (cfg["sensor"] ?: 1f) > 0.5f
-        val adaptive = (cfg["adaptive"] ?: 1f) > 0.5f
-        for (g in listOf(gBurger, gPill, gPlus, gDots, island)) {
+        val top = listOf<Any>(gBurger, gPill, gPlus, gDots)
+        val all = listOf<Any>(gBurger, gPill, gPlus, gDots, island)
+        for ((k, v) in cfg) {
+            if (k == "probe") continue
+            val prop = PROP[k] ?: continue
+            val raw = if (k in DP_KEYS) v * d else v
+            val targets = when (k) {
+                "corner" -> top
+                "islandCorner" -> listOf<Any>(island)
+                else -> all
+            }
+            for (t in targets) setProp(t, prop, k in BOOL_KEYS, raw)
+        }
+        for ((k, v) in cfgInt) {
+            if (k == "tint") for (t in all) setIntProp(t, "glassTint", v)
+        }
+        if (islandExpanded) setProp(island, "cornerRadius", false, dp(26f))
+        if ((cfg["probe"] ?: 0f) > 0.5f) {
+            showProbe("bevel=" + ((cfg["bevel"] ?: 0f) * d).toInt() +
+                    " blur=" + cfg["blur"] + " sat=" + cfg["sat"] + " tint=" + cfgInt["tint"])
+        }
+    }
+
+    private fun setter(name: String) = "set" + name.replaceFirstChar { it.uppercase() }
+
+    private fun setProp(target: Any, prop: String, isBool: Boolean, f: Float) {
+        val m = setter(prop)
+        try {
+            if (isBool) target.javaClass.getMethod(m, java.lang.Boolean.TYPE).invoke(target, f > 0.5f)
+            else target.javaClass.getMethod(m, java.lang.Float.TYPE).invoke(target, f)
+        } catch (_: Throwable) {
             try {
-                g.bevelWidth = bevel
-                g.refractionHeight = refr
-                g.refractionFalloff = falloff
-                g.dispersionStrength = disp
-                g.enableSensorHighlight = sensor
-                g.enableAdaptiveTint = adaptive
-            } catch (t: Throwable) {
-                Log.e(TAG, "applyGlassParams 失败", t)
+                target.javaClass.getMethod(m, java.lang.Integer.TYPE).invoke(target, f.toInt())
+            } catch (_: Throwable) {
+                Log.w(TAG, "no setter: " + m)
             }
         }
-        gBurger.cornerRadius = cfg["corner"]?.times(d) ?: dp(22f)
-        gPill.cornerRadius = cfg["corner"]?.times(d) ?: dp(22f)
-        gPlus.cornerRadius = cfg["corner"]?.times(d) ?: dp(22f)
-        gDots.cornerRadius = cfg["corner"]?.times(d) ?: dp(22f)
-        island.cornerRadius = if (islandExpanded) dp(26f)
-        else (cfg["islandCorner"]?.times(d) ?: dp(28f))
-        if ((cfg["probe"] ?: 0f) > 0.5f) showProbe("glass bevel=${bevel.toInt()} refr=${refr.toInt()}")
+    }
+
+    private fun setIntProp(target: Any, prop: String, v: Int) {
+        try {
+            target.javaClass.getMethod(setter(prop), java.lang.Integer.TYPE).invoke(target, v)
+        } catch (_: Throwable) {
+            Log.w(TAG, "no int setter: " + setter(prop))
+        }
     }
 
     /* ---------------- 布局 ---------------- */
@@ -426,7 +463,7 @@ class MainActivity : Activity() {
     private fun cfgDir() = getExternalFilesDir(null) ?: filesDir
 
     private fun loadCfg() {
-        cfg.clear()
+        cfg.clear(); cfgInt.clear()
         cfg.putAll(CFG_DEFAULTS)
         val f = File(cfgDir(), "glass.cfg")
         if (!f.exists() || f.length() < 8) return
@@ -436,8 +473,14 @@ class MainActivity : Activity() {
                 if (line.isEmpty()) continue
                 val i = line.indexOf('=')
                 if (i <= 0) continue
-                val v = line.substring(i + 1).trim().toFloatOrNull() ?: continue
-                cfg[line.substring(0, i).trim()] = v
+                val k = line.substring(0, i).trim()
+                val raw = line.substring(i + 1).trim()
+                if (raw.startsWith("0x") || raw.startsWith("0X")) {
+                    raw.substring(2).toLongOrNull(16)?.let { cfgInt[k] = it.toInt() }
+                    continue
+                }
+                val v = raw.toFloatOrNull() ?: continue
+                cfg[k] = v
             }
         } catch (_: Throwable) {}
     }

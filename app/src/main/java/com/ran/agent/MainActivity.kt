@@ -7,7 +7,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
@@ -28,6 +33,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.example.liquidglass.GlassMaterial
 import com.example.liquidglass.LiquidGlassView
+import com.example.liquidglass.ScrollEdgeBlurView
 import java.io.File
 
 /**
@@ -49,6 +55,10 @@ import java.io.File
 class MainActivity : Activity() {
 
     private lateinit var root: FrameLayout
+    private lateinit var webWrap: FrameLayout
+    private lateinit var edgeTop: ScrollEdgeBlurView
+    private lateinit var edgeBottom: ScrollEdgeBlurView
+    private lateinit var shadowRing: ShadowRingView
     private lateinit var web: WebView
     private lateinit var island: LiquidGlassView
     private lateinit var input: EditText
@@ -78,11 +88,17 @@ class MainActivity : Activity() {
         "dispersionStrength" to 0.06f, "useShaderPipeline" to 1f,
         "blurAmount" to 0.30f, "saturation" to 110f, "milk" to 0.93f,
         "corner" to 22f, "islandCorner" to 28f,
+        "edgeBlur" to 12f, "edgeTopH" to 96f, "edgeBotH" to 132f,
+        "shadowAlpha" to 34f, "shadowBlur" to 14f, "shadowDy" to 5f,
         "enableAdaptiveTint" to 1f, "enableSensorHighlight" to 1f,
         "enableEdgeHighlight" to 1f, "enableShadow" to 0f,
         "probe" to 0f
     )
     private val DP_KEYS = setOf("bevelWidth", "refractionHeight", "corner", "islandCorner")
+    /** 这些键由外壳自己消费，不反射到玻璃视图上 */
+    private val LOCAL_KEYS = setOf(
+        "probe", "milk", "edgeBlur", "edgeTopH", "edgeBotH",
+        "shadowAlpha", "shadowBlur", "shadowDy")
     private val cfg = LinkedHashMap<String, Float>()
     private val cfgInt = LinkedHashMap<String, Int>()
 
@@ -123,13 +139,29 @@ class MainActivity : Activity() {
         loadCfg()
 
         // ① WebView 先进，且加硬件层（玻璃捕获的前提）
+        // webWrap：只装 WebView + 上下渐进模糊条。玻璃挂 root、不在这一层里，
+        // 所以模糊条捕获不到玻璃自己，不会把玻璃糊成一片。
+        webWrap = FrameLayout(this)
+        root.addView(webWrap, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
         web = WebView(this)
-        root.addView(web, FrameLayout.LayoutParams(
+        webWrap.addView(web, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         try {
             web.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         } catch (_: Throwable) {}
         setupWeb()
+
+        // Scroll Edge Effect：内容滚到顶/底时从清晰渐变到模糊，而不是一条硬边
+        edgeTop = ScrollEdgeBlurView(this)
+        edgeTop.edge = ScrollEdgeBlurView.Edge.TOP
+        webWrap.addView(edgeTop, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, Gravity.TOP))
+        edgeBottom = ScrollEdgeBlurView(this)
+        edgeBottom.edge = ScrollEdgeBlurView.Edge.BOTTOM
+        webWrap.addView(edgeBottom, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, Gravity.BOTTOM))
 
         // ② 四块玻璃直接挂在 root（与 WebView 同父），必须写在 WebView 之后
         gBurger = glassBox(dp(22f)) { icon("\u2630") { clickWeb("burger") } }
@@ -148,6 +180,12 @@ class MainActivity : Activity() {
         island = buildIsland()
         root.addView(island, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(H_COLLAPSE), Gravity.BOTTOM))
+
+        // 阴影环：画在玻璃之上、但只在玻璃形状之外（内部 CLEAR 掉），
+        // 因此看起来像"玻璃下方投影"，又不会污染玻璃的背景采样。
+        shadowRing = ShadowRingView(this)
+        root.addView(shadowRing, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         applyGlassParams()
         buildTuner()
@@ -173,6 +211,17 @@ class MainActivity : Activity() {
         val filter = IntentFilter("com.ran.agent.RELOAD")
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(reloader, filter, Context.RECEIVER_EXPORTED)
         else @Suppress("UnspecifiedRegisterReceiverFlag") registerReceiver(reloader, filter)
+
+        try {
+            web.addJavascriptInterface(object : Any() {
+                @android.webkit.JavascriptInterface
+                fun edgePing() { runOnUiThread { invalidateEdges() } }
+            }, "RAN")
+        } catch (t: Throwable) { Log.w(TAG, "js interface", t) }
+
+        try {
+            web.setOnScrollChangeListener { _, _, _, _, _ -> invalidateEdges() }
+        } catch (_: Throwable) {}
 
         web.loadUrl("https://ran.ran-ai.pro")
 
@@ -214,7 +263,7 @@ class MainActivity : Activity() {
         val top = listOf<Any>(gBurger, gPill, gPlus, gDots)
         val all = listOf<Any>(gBurger, gPill, gPlus, gDots, island)
         for ((k, v) in cfg) {
-            if (k == "probe" || k == "milk") continue
+            if (k in LOCAL_KEYS) continue
             when (k) {
                 "corner" -> for (t in top) setProp(t, "cornerRadius", v * d)
                 "islandCorner" -> setProp(island, "cornerRadius", v * d)
@@ -231,6 +280,8 @@ class MainActivity : Activity() {
         }
         if (islandExpanded) setProp(island, "cornerRadius", dp(26f))
         applyMilk()
+        applyEdgeBlur()
+        applyShadow()
         if ((cfg["probe"] ?: 0f) > 0.5f) {
             showProbe("pipeline=" + (cfg["useShaderPipeline"] ?: 0f) +
                     " milk=" + cfg["milk"] + " blur=" + cfg["blurAmount"] +
@@ -341,6 +392,8 @@ class MainActivity : Activity() {
         addSlider(col, "\u8272\u6563 disp", "dispersionStrength", 0f, 0.4f)
         addSlider(col, "\u5706\u89d2 corner", "corner", 0f, 34f)
         addSlider(col, "\u9971\u548c sat", "saturation", 60f, 200f)
+        addSlider(col, "\u9634\u5f71 shadow", "shadowAlpha", 0f, 120f)
+        addSlider(col, "\u4e0a\u4e0b\u6a21\u7cca edge", "edgeBlur", 0f, 30f)
 
         col.addView(sectionLabel("\u5e95\u666f"))
         val brow = LinearLayout(this)
@@ -494,6 +547,84 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         }
     }
 
+    /** 上下渐进模糊：条带高度与最大模糊半径都由 cfg 控制，"别开太大"就调小这两项 */
+    private fun applyEdgeBlur() {
+        if (!this::edgeTop.isInitialized) return
+        val d = resources.displayMetrics.density
+        val r = (cfg["edgeBlur"] ?: 12f) * d
+        try {
+            edgeTop.maxBlurRadius = r
+            edgeBottom.maxBlurRadius = r
+        } catch (t: Throwable) {
+            Log.w(TAG, "maxBlurRadius 写入失败: " + t.javaClass.simpleName)
+        }
+        edgeTop.visibility = if (r > 0.5f) View.VISIBLE else View.GONE
+        edgeBottom.visibility = if (r > 0.5f) View.VISIBLE else View.GONE
+    }
+
+    /** 阴影参数变化 → 重画阴影片 */
+    private fun applyShadow() {
+        if (!this::shadowRing.isInitialized) return
+        val d = resources.displayMetrics.density
+        shadowRing.alphaPx = (cfg["shadowAlpha"] ?: 34f).toInt()
+        shadowRing.blurPx = (cfg["shadowBlur"] ?: 14f) * d
+        shadowRing.dyPx = (cfg["shadowDy"] ?: 5f) * d
+        shadowRing.invalidate()
+    }
+
+    private fun invalidateEdges() {
+        if (this::edgeTop.isInitialized) { edgeTop.invalidate(); edgeBottom.invalidate() }
+    }
+
+    /**
+     * 阴影环：为每块玻璃在"形状之外"画一圈柔和投影。
+     * 做法：saveLayer → 画白色圆角矩形并附 setShadowLayer（阴影是矩形外扩的模糊）→
+     * 用 CLEAR 把矩形内部挖掉 → 只剩外部阴影。因为内部被挖空，
+     * 不会盖住玻璃、也不会进入玻璃的背景采样。
+     */
+    inner class ShadowRingView(ctx: Context) : View(ctx) {
+        var alphaPx = 34
+        var blurPx = 40f
+        var dyPx = 14f
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+        }
+
+        init {
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null)   // setShadowLayer 需要软件层
+            isClickable = false                            // 不吃触摸，事件穿透给下面的玻璃/网页
+            isFocusable = false
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            if (alphaPx <= 0 || blurPx <= 0f) return
+            val targets = ArrayList<View>()
+            if (this@MainActivity::gBurger.isInitialized && this@MainActivity::island.isInitialized) {
+                targets.add(gBurger); targets.add(gPill); targets.add(gPlus)
+                targets.add(gDots); targets.add(island)
+            }
+            for (v in targets) {
+                if (v.visibility != View.VISIBLE || v.width <= 0) continue
+                val r = RectF(v.left.toFloat(), v.top.toFloat(),
+                    v.right.toFloat(), v.bottom.toFloat())
+                if (r.isEmpty) continue
+                val corner = if (v is LiquidGlassView) v.cornerRadius else 0f
+                val pad = blurPx * 2f + dp(4)
+                val layer = RectF(r)
+                layer.inset(-pad, -pad)
+                val save = canvas.saveLayer(layer, null)
+                paint.reset()
+                paint.isAntiAlias = true
+                paint.color = Color.WHITE
+                paint.setShadowLayer(blurPx, 0f, dyPx, Color.argb(alphaPx, 0, 0, 0))
+                canvas.drawRoundRect(r, corner, corner, paint)
+                canvas.drawRoundRect(r, corner, corner, clearPaint)
+                canvas.restoreToCount(save)
+            }
+        }
+    }
+
     private fun setter(name: String) = "set" + name.replaceFirstChar { it.uppercase() }
 
     /** 通用写入：按 Boolean -> Float -> Int 依次尝试同名 setter（属性名即 cfg key） */
@@ -541,6 +672,7 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
         place(gBurger, left0, top, side)
         place(gDots, w - right0 - side, top, side)
         place(gPlus, w - right0 - side * 2 - gap, top, side)
+        if (this::shadowRing.isInitialized) shadowRing.invalidate()
         val pillL = left0 + side + gap
         val pillR = w - right0 - side * 2 - gap * 2
         place(gPill, pillL, top, (pillR - pillL).coerceAtLeast(dp(80)))
@@ -548,6 +680,18 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
 
     private fun applyLayout() {
         layoutTopBar()
+        if (this::edgeTop.isInitialized) {
+            val th = dp((cfg["edgeTopH"] ?: 96f).toInt()) + insetTop
+            val bh = dp((cfg["edgeBotH"] ?: 132f).toInt()) + insetBottom
+            edgeTop.layoutParams = (edgeTop.layoutParams as FrameLayout.LayoutParams).apply {
+                height = th; gravity = Gravity.TOP
+            }
+            edgeBottom.layoutParams = (edgeBottom.layoutParams as FrameLayout.LayoutParams).apply {
+                height = bh; gravity = Gravity.BOTTOM
+            }
+            edgeTop.requestLayout(); edgeBottom.requestLayout()
+            invalidateEdges()
+        }
         if (this::island.isInitialized) {
             val lp = island.layoutParams as FrameLayout.LayoutParams
             val want = insetBottom + imeBottom + dp(14)
@@ -790,10 +934,22 @@ b.innerHTML=h;document.body.appendChild(b);return 'color'})()"""
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 injectShellCss()
-                root.postDelayed({ injectShellCss() }, 900)
+                injectEdgePing()
+                root.postDelayed({ injectEdgePing() }, 900)
                 root.postDelayed({ runDemoJs() }, 1400)
             }
         }
+    }
+
+    /** 页面滚动时通知原生重新捕获，否则模糊条会停在第一帧 */
+    private fun injectEdgePing() {
+        val js = "(function(){if(window.__ranEdgePing)return 1;window.__ranEdgePing=1;" +
+                "var q=0;function ping(){if(q)return;q=1;requestAnimationFrame(function(){q=0;" +
+                "try{window.RAN&&RAN.edgePing()}catch(e){}});}" +
+                "window.addEventListener('scroll',ping,{passive:true,capture:true});" +
+                "document.addEventListener('scroll',ping,{passive:true,capture:true});" +
+                "setInterval(ping,600);return 1})()"
+        web.evaluateJavascript(js, null)
     }
 
     private fun runDemoJs() {

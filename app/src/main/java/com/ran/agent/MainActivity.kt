@@ -12,6 +12,7 @@ import android.graphics.RenderEffect
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -53,6 +54,8 @@ class MainActivity : Activity() {
 
     private var probe: TextView? = null
 
+    private val TAG = "RanGlass"
+
     private val reloader = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
             applyConfig("reload")
@@ -61,6 +64,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
 
         root = FrameLayout(this)
         root.setBackgroundColor(0xFFF7F7F8.toInt())
@@ -96,6 +100,9 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= 33) Context.RECEIVER_EXPORTED else 0)
 
         web.loadUrl("https://ran.ran-ai.pro")
+
+        input.clearFocus()
+        web.requestFocus()
 
         root.postDelayed({ applyConfig("init") }, 320)
         root.viewTreeObserver.addOnGlobalLayoutListener { applyRects() }
@@ -165,9 +172,11 @@ class MainActivity : Activity() {
             val eff = RenderEffect.createRuntimeShaderEffect(s, "content")
             web.setRenderEffect(eff)
             applyRects()
-            showProbe("玻璃已载入 · " + cfg.toString() + " · " + why)
+            Log.i(TAG, "shader OK why=" + why + " " + cfg.toString())
+            showProbe("玻璃已载入 · " + cfg.toString())
         } catch (t: Throwable) {
-            showProbe("shader 出错：" + t.javaClass.simpleName + " " + (t.message ?: ""))
+            Log.e(TAG, "shader FAIL " + (t.message ?: ""), t)
+            showProbe("shader 出错：" + t.javaClass.simpleName)
         }
     }
 
@@ -211,7 +220,16 @@ class MainActivity : Activity() {
             s.setFloatUniform("tintA", cfg.tintA)
             s.setFloatUniform("rimA", cfg.rimA)
             web.invalidate()
+            if (rects.isNotEmpty()) {
+                val rc = rects[0]
+                Log.i(TAG, "rects n=" + rects.size + " r0=" + rc[0].toInt() + "," +
+                        rc[1].toInt() + "," + rc[2].toInt() + "," + rc[3].toInt() +
+                        " web=" + web.width + "x" + web.height)
+            } else {
+                Log.w(TAG, "rects 为空（玻璃控件还没测量）")
+            }
         } catch (t: Throwable) {
+            Log.e(TAG, "uniform FAIL", t)
             showProbe("uniform 写入失败：" + t.javaClass.simpleName)
         }
     }

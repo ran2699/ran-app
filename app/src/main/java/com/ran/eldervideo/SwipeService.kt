@@ -239,13 +239,10 @@ class SwipeService : AccessibilityService() {
     private var lastLowBattAt = 0L
     @Volatile
     private var lastScDiagAt = 0L
+    @Volatile
+    private var lastBattDiagAt = 0L
     private var tickCount = 0
 
-    /**
-     * 在所有窗口里找安全中心的根节点。
-     * 悬浮窗不一定是 active window（实测它挂着时 active 仍可能是下层那个应用），
-     * 所以 rootInActiveWindow 和 windows 两个来源都要问。
-     */
     /** 电量已进低电区且没在充电：只有这时候才值得去盯安全中心的弹窗 */
     private fun batteryLow(): Boolean {
         return try {
@@ -255,16 +252,20 @@ class SwipeService : AccessibilityService() {
             ) ?: return false
             val level = i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
             val scale = i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100)
-            val status = i.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1)
-            val charging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
-                status == android.os.BatteryManager.BATTERY_STATUS_FULL
             val pct = if (scale > 0) level * 100 / scale else level
-            !charging && pct in 0..21
+            // 不排除「充电中」：实测手机插着 USB 时 status 恒为 CHARGING，
+            // 若据此跳过，守门就整个失效（本机验证时踩到过）。低电区一律盯着。
+            pct in 0..21
         } catch (t: Throwable) {
             false
         }
     }
 
+    /**
+     * 在所有窗口里找安全中心的根节点。
+     * 悬浮窗不一定是 active window（实测它挂着时 active 仍可能是下层那个应用），
+     * 所以 rootInActiveWindow 和 windows 两个来源都要问。
+     */
     private fun scWindowRoot(): android.view.accessibility.AccessibilityNodeInfo? {
         try {
             val active = rootInActiveWindow
@@ -409,7 +410,15 @@ class SwipeService : AccessibilityService() {
             // 所以不靠事件：只要电量进了低电区，每跳（1.5 秒）都查一次，弹出来就点掉。
             try {
                 tickCount++
-                if (batteryLow()) dismissLowBatteryPopup()
+                if (batteryLow()) {
+                    // 诊断：确认电量门控真的读到了低电量（限流 10 秒一条，便于真机核对）
+                    val nowBatt = System.currentTimeMillis()
+                    if (nowBatt - lastBattDiagAt > 10000L) {
+                        lastBattDiagAt = nowBatt
+                        Log.i(TAG, "in low battery zone, polling for popup")
+                    }
+                    dismissLowBatteryPopup()
+                }
             } catch (t: Throwable) {
             }
             handler.postDelayed(this, 1500L)

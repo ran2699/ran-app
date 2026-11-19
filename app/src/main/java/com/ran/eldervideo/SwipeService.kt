@@ -212,6 +212,162 @@ class SwipeService : AccessibilityService() {
         }
     }
 
+    // ---------------- 系统低电量弹窗守卫（1.0.50） ----------------
+    /**
+     * 澎湃OS 3 没有「关闭低电量提示」的开关：实测 设置→省电与电池→更多电池功能 整页只有五项，
+     * secure/global/system 三张设置表也搜不到任何相关开关。它每跨过一次 20%、10%，就用
+     * 安全中心的悬浮窗弹一次：
+     *   window = com.miui.securitycenter/.FloatingWindow
+     *   标题   = "电量已低于20%" / "电量已低于10%"
+     *   按钮   = [知道了] [省电模式]，两个都是 android.widget.Button
+     * 无障碍能读到完整节点树（capabilities 含 CAN_RETRIEVE_WINDOW_CONTENT，实测 dump 通过），
+     * 点「知道了」实测能关掉，按返回键实测也能关掉。
+     *
+     * 为什么必须做：右边那个蓝色「省电模式」按钮对老人是个陷阱——误点一下就进省电模式，
+     * 前台服务和无障碍会被系统限死，整套桌面等于瘫痪。自动点掉「知道了」顺手把这个坑堵上。
+     *
+     * 铁律：只按文本找「知道了」，绝不按坐标点——坐标一偏就点成「省电模式」。
+     */
+    private object LowBatt {
+        const val SC_PKG = "com.miui.securitycenter"
+        const val TITLE_KEY = "电量已低于"
+        const val OK_TEXT = "知道了"
+        const val SP_KEY = "lowbatt_log"
+    }
+
+    @Volatile
+    private var lastLowBattAt = 0L
+    @Volatile
+    private var lastScDiagAt = 0L
+    private var tickCount = 0
+
+    /**
+     * 在所有窗口里找安全中心的根节点。
+     * 悬浮窗不一定是 active window（实测它挂着时 active 仍可能是下层那个应用），
+     * 所以 rootInActiveWindow 和 windows 两个来源都要问。
+     */
+    /** 电量已进低电区且没在充电：只有这时候才值得去盯安全中心的弹窗 */
+    private fun batteryLow(): Boolean {
+        return try {
+            val i = registerReceiver(
+                null,
+                android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
+            ) ?: return false
+            val level = i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+            val scale = i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100)
+            val status = i.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1)
+            val charging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == android.os.BatteryManager.BATTERY_STATUS_FULL
+            val pct = if (scale > 0) level * 100 / scale else level
+            !charging && pct in 0..21
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    private fun scWindowRoot(): android.view.accessibility.AccessibilityNodeInfo? {
+        try {
+            val active = rootInActiveWindow
+            if (active != null && active.packageName?.toString() == LowBatt.SC_PKG) return active
+        } catch (t: Throwable) {
+        }
+        try {
+            for (w in windows) {
+                val r = try { w.root } catch (t: Throwable) { null } ?: continue
+                if (r.packageName?.toString() == LowBatt.SC_PKG) return r
+            }
+        } catch (t: Throwable) {
+        }
+        return null
+    }
+
+    /** 递归找文本节点；exact=true 全等，false 包含 */
+    private fun nodeWith(
+        root: android.view.accessibility.AccessibilityNodeInfo?,
+        text: String,
+        exact: Boolean,
+        depth: Int = 0
+    ): android.view.accessibility.AccessibilityNodeInfo? {
+        if (root == null || depth > 30) return null
+        val t = root.text?.toString() ?: ""
+        if (if (exact) t == text else t.contains(text)) return root
+        for (i in 0 until root.childCount) {
+            val c = try { root.getChild(i) } catch (e: Throwable) { null } ?: continue
+            val hit = nodeWith(c, text, exact, depth + 1)
+            if (hit != null) return hit
+        }
+        return null
+    }
+
+    /** 文本节点本身通常不可点，往上找第一个可点的祖先；找不到就退回原节点试一次 */
+    private fun clickableAround(
+        node: android.view.accessibility.AccessibilityNodeInfo?
+    ): android.view.accessibility.AccessibilityNodeInfo? {
+        var n = node
+        var d = 0
+        while (n != null && d < 6) {
+            if (n.isClickable) return n
+            n = try { n.parent } catch (t: Throwable) { null }
+            d++
+        }
+        return node
+    }
+
+    /** 认准「电量已低于」才动手，别的安全中心弹窗一概不碰 */
+    private fun dismissLowBatteryPopup() {
+        val sp = getSharedPreferences("elder", MODE_PRIVATE)
+        if (!sp.getBoolean("lowbatt_guard_on", true)) return
+        val now = System.currentTimeMillis()
+        if (now - lastLowBattAt < 1200L) return
+        try {
+            val root = scWindowRoot() ?: return
+            val titleNode = nodeWith(root, LowBatt.TITLE_KEY, false)
+            if (titleNode == null) {
+                // 诊断：能读到安全中心的窗口但没有低电标题（限流 10 秒一条）。
+                // 用来区分「弹窗没出现」和「出现了但无障碍读不到」。
+                if (now - lastScDiagAt > 10000L) {
+                    lastScDiagAt = now
+                    Log.i(TAG, "sc window present, no low-battery title")
+                }
+                return
+            }
+            val title = titleNode.text?.toString().orEmpty()
+            lastLowBattAt = now
+
+            var how = "back"
+            var done = false
+            val btn = clickableAround(nodeWith(root, LowBatt.OK_TEXT, true))
+            if (btn != null) {
+                done = try {
+                    btn.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+                } catch (t: Throwable) {
+                    false
+                }
+                if (done) how = "click"
+            }
+            if (!done) performGlobalAction(GLOBAL_ACTION_BACK)
+
+            Log.i(TAG, "low battery popup [$title] dismissed by $how")
+            val stamp = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA)
+                .format(java.util.Date())
+            sp.edit().putString(LowBatt.SP_KEY, "$stamp $title → $how").apply()
+
+            // 复核：500ms 后还在就再按一次返回键
+            handler.postDelayed({
+                try {
+                    val again = scWindowRoot()
+                    if (again != null && nodeWith(again, LowBatt.TITLE_KEY, false) != null) {
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                        Log.i(TAG, "low battery popup still there, back again")
+                    }
+                } catch (t: Throwable) {
+                }
+            }, 500L)
+        } catch (e: Throwable) {
+            Log.e(TAG, "dismiss low battery failed", e)
+        }
+    }
+
     private val handler = Handler(Looper.getMainLooper())
     private var screenW = 0
     private var screenH = 0
@@ -248,6 +404,13 @@ class SwipeService : AccessibilityService() {
                 syncOverlay()
             } catch (e: Throwable) {
                 Log.e(TAG, "sync ticker failed", e)
+            }
+            // 悬浮窗的事件可能不派发（实测 HYPEROS 的 FloatingWindow 不保证发 WINDOW_STATE_CHANGED），
+            // 所以不靠事件：只要电量进了低电区，每跳（1.5 秒）都查一次，弹出来就点掉。
+            try {
+                tickCount++
+                if (batteryLow()) dismissLowBatteryPopup()
+            } catch (t: Throwable) {
             }
             handler.postDelayed(this, 1500L)
         }
@@ -300,6 +463,8 @@ class SwipeService : AccessibilityService() {
         if (event == null) return
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val pkg = event.packageName?.toString().orEmpty()
+            // 安全中心的低电量弹窗（1.0.50）：弹出来就点掉，别让它挡住老人
+            if (pkg == LowBatt.SC_PKG) handler.postDelayed({ dismissLowBatteryPopup() }, 250L)
             if (pkg.isNotEmpty()) {
                 // 系统层弹窗（权限框、状态栏、系统壳）不代表真的离开了抖音，跳过不记
                 val noise = NOISE_PKGS.any { pkg == it || pkg.startsWith("$it.") }
